@@ -180,6 +180,11 @@ destroy_workspace() {
     log_audit "workspace_destroyed"; log_audit "SANDBOX_DESTROYED" "Sandbox and temporary storage destroyed for [${target_id}]"
     log_audit "CLEANUP_COMPLETED" "Cleanup verified and successfully finished for [${target_id}]"
     log_audit "PERF" "Workspace [${target_id}] destruction verified in ${destroy_duration}s"
+    echo "STOPPING..."
+    echo "✓ WORKSPACE DESTROYED"
+    echo ""
+    echo "RUNTIME:  NOT FOUND"
+    echo "ACCESS:   DENIED"
     echo "[SUCCESS] Workspace ${target_id} destroyed and purged."
     exit 0
 }
@@ -435,6 +440,22 @@ NET_STATUS_STR="ALLOWED"
 if [[ "$NET_INTERNET" == "false" ]]; then
     NET_STATUS_STR="BLOCKED"
 fi
+
+echo "=========================================================="
+echo "                   ${PROFILE_NAME^^}                      "
+echo "=========================================================="
+echo "Application:  ${PROFILE_NAME}"
+echo "Environment:  Isolated Ephemeral Workspace"
+echo ""
+echo "Permissions:"
+echo "  Internet      ${NET_STATUS_STR}"
+echo "  Local Files   BLOCKED"
+echo "  Camera        BLOCKED"
+echo "  Microphone    BLOCKED"
+echo "  Storage       $([[ "$PERSISTENT_STORAGE" == "true" ]] && echo "PERSISTENT" || echo "TEMPORARY")"
+echo ""
+echo "Policies shown here reflect the configured VEILOS runtime profile."
+echo "=========================================================="
 
 cat <<META > "$META_FILE"
 {

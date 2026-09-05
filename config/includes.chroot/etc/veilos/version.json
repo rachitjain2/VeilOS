@@ -1,0 +1,11 @@
+{
+  "release": "VEILOS-HACKATHON",
+  "name": "VEILOS Hackathon Edition",
+  "version": "v0.1",
+  "build_date": "2026-09-06T01:02:00Z",
+  "git_commit": "2fa139298b936559b8c8273e2c45237591afdb70",
+  "target": "live-amd64-hybrid",
+  "desktop": "XFCE4-Minimal",
+  "engine": "Bubblewrap-Namespaces",
+  "status": "FROZEN"
+}

@@ -220,6 +220,25 @@ class VeilosPrivacyCenter(Gtk.Window):
 
         main_box.pack_start(apps_box, False, False, 0)
 
+        # 4b. What is Isolated? Quick Explanation View (Judge-Friendly)
+        iso_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        iso_box.get_style_context().add_class("status-container")
+        
+        iso_title = Gtk.Label(label="WHAT IS ISOLATED? (AT A GLANCE)")
+        iso_title.get_style_context().add_class("status-label")
+        iso_title.set_halign(Gtk.Align.START)
+        iso_box.pack_start(iso_title, False, False, 0)
+
+        iso_content = Gtk.Label(
+            label="Allowed:    Internet ✓\n"
+                  "Blocked:    Personal Files ✕  |  Camera ✕  |  Microphone ✕  |  Host Storage ✕\n"
+                  "Temporary:  All Workspace Data & Caches (Discarded upon Destroy / Exit)"
+        )
+        iso_content.get_style_context().add_class("btn-desc")
+        iso_content.set_halign(Gtk.Align.START)
+        iso_box.pack_start(iso_content, False, False, 0)
+        main_box.pack_start(iso_box, False, False, 0)
+
         # 5. Audit Log Section (Security-Relevant Events Only)
         sec_audit_lbl = Gtk.Label(label="AUDIT HISTORY (SECURITY-RELEVANT EVENTS ONLY)")
         sec_audit_lbl.get_style_context().add_class("status-label")
