@@ -96,7 +96,8 @@ EXECUTABLE=$(grep -o '"executable": "[^"]*' "$PROFILE_CONFIG" | cut -d'"' -f4)
 NET_ENABLED=$(grep -o '"enabled": [^,]*' "$PROFILE_CONFIG" | head -n 1 | awk '{print $2}')
 AUDIO_ENABLED=$(grep -o '"audio": [^,]*' "$PROFILE_CONFIG" | head -n 1 | awk '{print $2}')
 MEM_LIMIT=$(grep -o '"memory_limit_mb": [0-9]*' "$PROFILE_CONFIG" | awk '{print $2}')
-MAX_PIDS=$(grep -o '"max_pids": [0-9]*' "$PROFILE_CONFIG" | awk '{print $2:-256}')
+MAX_PIDS=$(grep -o '"max_pids": [0-9]*' "$PROFILE_CONFIG" | awk '{print $2}' || echo 256)
+[[ -z "$MAX_PIDS" ]] && MAX_PIDS=256
 
 # Parse default_args safely
 APP_ARGS=()
@@ -107,7 +108,7 @@ if command -v python3 >/dev/null 2>&1 && python3 -c "import json" >/dev/null 2>&
 else
     while IFS= read -r line; do
         [[ -n "$line" ]] && APP_ARGS+=("$line")
-    done < <(sed -n '/"default_args"/,/]/p' "$PROFILE_CONFIG" | grep -o '"[^"]*"' | grep -v 'default_args' | tr -d '"')
+    done < <(sed -n '/"default_args"[[:space:]]*:[[:space:]]*\[/,/\]/p' "$PROFILE_CONFIG" | grep -o '"[^"]*"' | grep -v 'default_args' | tr -d '"')
 fi
 
 # Workspace Identification
@@ -256,3 +257,4 @@ if [[ "$TIMEOUT_SECONDS" -gt 0 ]]; then
 fi
 
 "${BWRAP_CMD[@]}" "${EXECUTABLE}" "${APP_ARGS[@]}"
+
