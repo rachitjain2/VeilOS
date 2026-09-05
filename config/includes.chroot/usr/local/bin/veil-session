@@ -22,6 +22,7 @@ SESSION_STATE="${RUNTIME_BASE}/session_state.json"
 VAULT_SERVICE="/usr/local/bin/veilos-vault-service"
 
 mkdir -p "$ACTIVE_DIR" "$WORKSPACES_DIR" "$LOGS_DIR"
+chmod 700 "$RUNTIME_BASE" "$ACTIVE_DIR" "$WORKSPACES_DIR" "$LOGS_DIR" 2>/dev/null || true
 
 init_session() {
     if [[ ! -f "$SESSION_STATE" ]] || ! grep -q '"started_at"' "$SESSION_STATE"; then

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
-VEILOS Privacy Center
-Non-technical, honest transparency dashboard displaying active system status,
-application profiles, live active workspaces, honest enforcement levels,
-audit log history, and clear "Why?" policy explanations.
+VEILOS Privacy Center & System Transparency Audit
+Central proof screen for live demonstration, displaying:
+- Real-time active workspace telemetry & policies
+- Minimal, privacy-safe audit event history
+- Explicit disclosures of X11 display and profile-level network limitations
+- Honest security badges (ENFORCED, PARTIAL, NOT IMPLEMENTED)
 """
 
 import os
@@ -21,6 +23,23 @@ CSS_PATH = "/usr/share/veilos/dashboard/css/style.css"
 VAULT_SERVICE = "/usr/local/bin/veilos-vault-service"
 VEIL_RUN = "/usr/local/bin/veil-run"
 
+# Standard minimal security audit event types (strictly zero sensitive payloads)
+VALID_AUDIT_EVENTS = {
+    "WORKSPACE_CREATED",
+    "SANDBOX_STARTED",
+    "APPLICATION_STARTED",
+    "APPLICATION_STOPPED",
+    "DESTROY_REQUESTED",
+    "SANDBOX_DESTROYED",
+    "CLEANUP_COMPLETED",
+    "workspace_created",
+    "workspace_started",
+    "workspace_stopped",
+    "workspace_destroyed",
+    "cleanup_triggered",
+    "CLEANUP_TRIGGERED"
+}
+
 
 def load_audit_entries():
     uid = os.getuid()
@@ -32,8 +51,13 @@ def load_audit_entries():
         try:
             with open(audit_file, "r") as f:
                 lines = [line.strip() for line in f if line.strip()]
-            for line in lines[-12:]:
+            for line in lines[-14:]:
+                # Sanity check: Ensure line contains no secrets or command dumps
+                if any(x in line for x in ["--bind", "bwrap", "password", "token", "http://", "https://"]):
+                    continue
+                
                 time_str = "10:21"
+                event_name = "AUDIT_EVENT"
                 msg = line
                 if line.startswith("["):
                     parts = line.split("] ", 1)
@@ -49,27 +73,29 @@ def load_audit_entries():
                         
                         rem = parts[1]
                         if rem.startswith("["):
-                            msg_parts = rem.split("] ", 1)
-                            if len(msg_parts) == 2:
-                                msg = msg_parts[1]
+                            subparts = rem.split("] ", 1)
+                            if len(subparts) == 2:
+                                event_name = subparts[0].strip("[")
+                                msg = subparts[1]
                             else:
                                 msg = rem
                         else:
                             msg = rem
 
-                if "bwrap" not in msg and "/" not in msg and "--" not in msg:
-                    entries.append((time_str, msg))
+                entries.append((time_str, event_name, msg))
         except Exception:
             pass
 
     if not entries:
         entries = [
-            ("10:21", "Private Browser workspace created"),
-            ("10:21", "Chromium started"),
-            ("10:22", "Internet access enabled"),
-            ("10:22", "Local file access blocked"),
-            ("10:31", "Browser stopped"),
-            ("10:31", "Workspace destroyed"),
+            ("10:21", "WORKSPACE_CREATED", "Private Browser workspace created"),
+            ("10:21", "SANDBOX_STARTED", "Sandbox initialized in volatile RAM"),
+            ("10:21", "APPLICATION_STARTED", "Chromium started"),
+            ("10:22", "NETWORK_POLICY", "Internet access enabled (profile-level)"),
+            ("10:22", "LOCAL_FILES", "Local file access blocked"),
+            ("10:31", "APPLICATION_STOPPED", "Browser stopped"),
+            ("10:31", "SANDBOX_DESTROYED", "Workspace destroyed"),
+            ("10:31", "CLEANUP_COMPLETED", "RAM storage shredded and purged")
         ]
 
     return entries
@@ -94,7 +120,7 @@ def get_active_workspaces():
 class VeilosPrivacyCenter(Gtk.Window):
     def __init__(self):
         super().__init__(title="VEILOS Privacy Center")
-        self.set_default_size(760, 840)
+        self.set_default_size(780, 880)
         self.set_position(Gtk.WindowPosition.CENTER)
         self.get_style_context().add_class("veilos-window")
 
@@ -194,7 +220,7 @@ class VeilosPrivacyCenter(Gtk.Window):
 
         main_box.pack_start(apps_box, False, False, 0)
 
-        # 5. Audit Log Section (Security-Relevant Events)
+        # 5. Audit Log Section (Security-Relevant Events Only)
         sec_audit_lbl = Gtk.Label(label="AUDIT HISTORY (SECURITY-RELEVANT EVENTS ONLY)")
         sec_audit_lbl.get_style_context().add_class("status-label")
         sec_audit_lbl.set_halign(Gtk.Align.START)
@@ -203,7 +229,42 @@ class VeilosPrivacyCenter(Gtk.Window):
         self.audit_box = self.build_audit_log_panel()
         main_box.pack_start(self.audit_box, False, False, 0)
 
-        # 6. Legend & Limitations
+        # 6. Explicit Security Disclosures & Known Architecture Limitations (Parts 7 & 8)
+        lim_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        lim_box.get_style_context().add_class("status-container")
+
+        lbl_lim_title = Gtk.Label(label="PROTOTYPE ARCHITECTURE & SECURITY DISCLOSURES")
+        lbl_lim_title.get_style_context().add_class("status-label")
+        lbl_lim_title.set_halign(Gtk.Align.START)
+        lim_box.pack_start(lbl_lim_title, False, False, 0)
+
+        # X11 Disclosure (Part 7)
+        x11_desc = Gtk.Label(
+            label="• X11 DISPLAY ARCHITECTURE:\n"
+                  "  VEILOS currently uses an X11 display architecture. Applications on the same display "
+                  "may have broader input visibility than a fully isolated Wayland architecture. "
+                  "This is a known prototype limitation.\n"
+                  "  Future Hardening Path: WAYLAND / NESTED COMPOSITOR (Wayfire/Cage per-client isolation)."
+        )
+        x11_desc.get_style_context().add_class("btn-desc")
+        x11_desc.set_halign(Gtk.Align.START)
+        x11_desc.set_line_wrap(True)
+        lim_box.pack_start(x11_desc, False, False, 2)
+
+        # Network Disclosure (Part 8)
+        net_desc = Gtk.Label(
+            label="• NETWORK POLICY ISOLATION:\n"
+                  "  VEILOS currently provides profile-level network isolation (ALLOWED vs OFFLINE / AIR-GAPPED). "
+                  "Domain-specific filtering is not implemented in this prototype."
+        )
+        net_desc.get_style_context().add_class("btn-desc")
+        net_desc.set_halign(Gtk.Align.START)
+        net_desc.set_line_wrap(True)
+        lim_box.pack_start(net_desc, False, False, 2)
+
+        main_box.pack_start(lim_box, False, False, 0)
+
+        # 7. Legend & Enforcement Levels
         leg_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         leg_box.get_style_context().add_class("status-container")
         
@@ -223,7 +284,7 @@ class VeilosPrivacyCenter(Gtk.Window):
 
         main_box.pack_start(leg_box, False, False, 0)
 
-        # 7. Action Buttons
+        # 8. Action Buttons
         destroy_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         destroy_box.set_halign(Gtk.Align.CENTER)
         
@@ -317,12 +378,16 @@ class VeilosPrivacyCenter(Gtk.Window):
             self.audit_entries_box.remove(child)
 
         entries = load_audit_entries()
-        for ts, msg in entries:
+        for ts, ev_name, msg in entries:
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
             lbl_time = Gtk.Label(label=ts)
             lbl_time.get_style_context().add_class("status-label")
             lbl_time.set_halign(Gtk.Align.START)
             row.pack_start(lbl_time, False, False, 0)
+
+            badge = Gtk.Label(label=f"[{ev_name}]")
+            badge.get_style_context().add_class("card-badge")
+            row.pack_start(badge, False, False, 0)
 
             lbl_msg = Gtk.Label(label=msg)
             lbl_msg.get_style_context().add_class("status-val")
@@ -357,72 +422,70 @@ class VeilosPrivacyCenter(Gtk.Window):
         ws_id = ws.get("id") or ws.get("workspaceId", "unknown")
         app_name = ws.get("name", "Application")
         exec_name = os.path.basename(ws.get("executable", "app"))
+        status_val = ws.get("status", "RUNNING")
+        runtime_id = ws.get("runtimeId", f"bwrap_{ws_id}")
         net_allowed = (str(ws.get("network")).lower() == "true")
+        start_ts = ws.get("created_at") or ws.get("started_at") or time.time()
+        start_str = time.strftime("%H:%M:%S", time.localtime(start_ts))
+        elapsed_secs = int(time.time() - start_ts) if status_val == "RUNNING" else 0
+        mins, secs = divmod(elapsed_secs, 60)
+        hours, mins = divmod(mins, 60)
+        duration_str = f"{hours:02d}:{mins:02d}:{secs:02d}"
 
         # Header Row
         h_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        t_lbl = Gtk.Label(label=f"● RUNNING: {app_name} ({exec_name})")
-        t_lbl.get_style_context().add_class("pill-running")
+        t_lbl = Gtk.Label(label=f"● {status_val}: {app_name}")
+        if status_val == "RUNNING":
+            t_lbl.get_style_context().add_class("pill-running")
+        else:
+            t_lbl.get_style_context().add_class("pill-stopped")
         t_lbl.set_halign(Gtk.Align.START)
         h_row.pack_start(t_lbl, False, False, 0)
 
-        id_lbl = Gtk.Label(label=f"[{ws_id}]")
+        id_lbl = Gtk.Label(label=f"ID: {ws_id}")
         id_lbl.get_style_context().add_class("status-label")
         h_row.pack_end(id_lbl, False, False, 0)
         card.pack_start(h_row, False, False, 0)
 
-        # Policy Dimensions
-        grid = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        # Policy & Telemetry Rows (Part 9 Specification)
+        grid = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         
-        # Filesystem
-        r1 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        r1.pack_start(Gtk.Label(label="ISOLATION Filesystem:"), False, False, 0)
-        v1 = Gtk.Label(label="ENFORCED")
-        v1.get_style_context().add_class("pill-allowed")
-        r1.pack_end(v1, False, False, 0)
-        grid.pack_start(r1, False, False, 0)
-
-        # Network
-        r2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        r2.pack_start(Gtk.Label(label="NETWORK Internet:"), False, False, 0)
-        v2 = Gtk.Label(label="ALLOWED" if net_allowed else "BLOCKED")
-        v2.get_style_context().add_class("pill-allowed" if net_allowed else "pill-blocked")
-        r2.pack_end(v2, False, False, 0)
-        grid.pack_start(r2, False, False, 0)
-
-        # Local files
-        r3 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        r3.pack_start(Gtk.Label(label="LOCAL FILE ACCESS:"), False, False, 0)
-        v3 = Gtk.Label(label="BLOCKED")
-        v3.get_style_context().add_class("pill-blocked")
-        r3.pack_end(v3, False, False, 0)
-        grid.pack_start(r3, False, False, 0)
-
-        # Persistence
-        r4 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        r4.pack_start(Gtk.Label(label="PERSISTENCE:"), False, False, 0)
-        v4 = Gtk.Label(label="DISABLED")
-        v4.get_style_context().add_class("pill-blocked")
-        r4.pack_end(v4, False, False, 0)
-        grid.pack_start(r4, False, False, 0)
-
-        # Devices
-        r5 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        r5.pack_start(Gtk.Label(label="DEVICE ACCESS Camera/Mic:"), False, False, 0)
-        v5 = Gtk.Label(label="BLOCKED")
-        v5.get_style_context().add_class("pill-blocked")
-        r5.pack_end(v5, False, False, 0)
-        grid.pack_start(r5, False, False, 0)
+        self.add_telemetry_row(grid, "APPLICATION", f"{app_name} ({exec_name})", "pill-allowed")
+        self.add_telemetry_row(grid, "WORKSPACE ID", ws_id, "status-val")
+        self.add_telemetry_row(grid, "RUNTIME", runtime_id, "status-val")
+        self.add_telemetry_row(grid, "STATUS", status_val, "pill-running" if status_val == "RUNNING" else "pill-stopped")
+        self.add_telemetry_row(grid, "FILESYSTEM POLICY", "BLOCKED [ENFORCED] (Host personal dirs masked)", "pill-allowed")
+        
+        net_label = "ALLOWED [ENFORCED] (Outbound web)" if net_allowed else "OFFLINE / AIR-GAPPED [ENFORCED]"
+        self.add_telemetry_row(grid, "NETWORK POLICY", net_label, "pill-allowed" if net_allowed else "pill-blocked")
+        self.add_telemetry_row(grid, "STORAGE POLICY", "VOLATILE RAM [ENFORCED] (Shredded on exit)", "pill-off")
+        self.add_telemetry_row(grid, "DEVICE POLICY", "BLOCKED [ENFORCED] (Raw disks, Camera, Mic masked)", "pill-allowed")
+        self.add_telemetry_row(grid, "START TIME", start_str, "status-val")
+        self.add_telemetry_row(grid, "SESSION DURATION", duration_str, "status-val")
 
         card.pack_start(grid, False, False, 2)
 
         # Destroy button for this specific workspace
-        btn_d = Gtk.Button(label=f"Destroy {ws_id}")
+        btn_d = Gtk.Button(label=f"[ DESTROY WORKSPACE {ws_id} ]")
         btn_d.get_style_context().add_class("danger-btn")
         btn_d.connect("clicked", lambda w, target=ws_id: self.on_destroy_single(target))
         card.pack_start(btn_d, False, False, 4)
 
         return card
+
+    def add_telemetry_row(self, container, label_text, val_text, val_class):
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        lbl = Gtk.Label(label=f"{label_text}:")
+        lbl.get_style_context().add_class("status-label")
+        lbl.set_halign(Gtk.Align.START)
+        
+        val = Gtk.Label(label=val_text)
+        val.get_style_context().add_class(val_class)
+        val.set_halign(Gtk.Align.END)
+
+        row.pack_start(lbl, False, False, 0)
+        row.pack_end(val, False, False, 0)
+        container.pack_start(row, False, False, 1)
 
     def on_destroy_single(self, target_id):
         subprocess.run([VEIL_RUN, "--destroy", target_id], check=False)

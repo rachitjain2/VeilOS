@@ -23,6 +23,8 @@ TESTS=(
     "test_security_hardening.sh"
     "test_profile_engine_15.sh"
     "test_desktop_integration.sh"
+    "demo-smoke-test.sh"
+    "isolation-test.sh"
 )
 
 PASSED=0

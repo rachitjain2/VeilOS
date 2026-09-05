@@ -1,0 +1,91 @@
+#!/bin/bash
+# ==============================================================================
+# VEILOS Demo Reset Utility: veil-demo-reset
+# Safely returns VEILOS to a clean demonstration state by cleaning stale
+# VEILOS-managed temporary workspaces and resetting metadata in RAM.
+# STRICT SAFETY:
+# - NEVER deletes arbitrary home directories
+# - NEVER deletes unrelated containers
+# - NEVER kills unrelated processes
+# - NEVER erases user data outside VEILOS-managed runtime paths
+# ==============================================================================
+
+set -euo pipefail
+
+SESSION_UID=$(id -u)
+RUNTIME_BASE="${XDG_RUNTIME_DIR:-/tmp}/veilos-${SESSION_UID}"
+ACTIVE_DIR="${RUNTIME_BASE}/active_workspaces"
+WORKSPACES_DIR="${RUNTIME_BASE}/workspaces"
+LOGS_DIR="${RUNTIME_BASE}/logs"
+AUDIT_LOG="${LOGS_DIR}/audit.log"
+SESSION_STATE="${RUNTIME_BASE}/session_state.json"
+
+log_reset() {
+    local msg="$1"
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    echo "[$timestamp] [DEMO_RESET] $msg" >> "${AUDIT_LOG}" 2>/dev/null || true
+}
+
+echo "=========================================================="
+echo "                   VEILOS DEMO RESET                      "
+echo "=========================================================="
+
+# 1. Safely terminate VEILOS-managed sandbox processes only
+# We only target processes belonging to active VEILOS workspaces registered in metadata
+if [[ -d "$ACTIVE_DIR" ]]; then
+    for meta in "${ACTIVE_DIR}"/*.json; do
+        if [[ -f "$meta" ]]; then
+            ws_id=$(grep -o '"id": "[^"]*' "$meta" | cut -d'"' -f4 || true)
+            owner=$(grep -o '"owner_uid": [0-9]*' "$meta" | awk '{print $2}' || echo "$SESSION_UID")
+            if [[ -n "$ws_id" && "$owner" == "$SESSION_UID" ]]; then
+                # Strictly kill by target workspace ID tag, NEVER arbitrary names
+                pkill -TERM -f "${ws_id}" 2>/dev/null || true
+                sleep 0.1 2>/dev/null || true
+                pkill -9 -f "${ws_id}" 2>/dev/null || true
+            fi
+        fi
+    done
+fi
+
+# Run veil-cleanup if present
+if [[ -x /usr/local/bin/veil-cleanup ]]; then
+    /usr/local/bin/veil-cleanup scan 2>/dev/null || true
+fi
+
+echo "[✓] stale VEILOS workspaces cleaned"
+log_reset "Stale VEILOS workspaces safely cleaned"
+
+# 2. Reset VEILOS temporary runtime directories within RAM only
+if [[ -d "$WORKSPACES_DIR" ]]; then
+    # Scrub only contents inside VEILOS workspaces directory
+    find "$WORKSPACES_DIR" -mindepth 1 -maxdepth 2 -type f -exec rm -f {} + 2>/dev/null || true
+    find "$WORKSPACES_DIR" -mindepth 1 -maxdepth 2 -type d -exec rm -rf {} + 2>/dev/null || true
+fi
+
+if [[ -d "$ACTIVE_DIR" ]]; then
+    rm -f "${ACTIVE_DIR}"/*.json 2>/dev/null || true
+fi
+
+# Reset session state timestamp
+if [[ -f "$SESSION_STATE" ]]; then
+    cat <<EOF > "$SESSION_STATE"
+{
+  "session_id": "session_$(date +%s)_${RANDOM}",
+  "started_at": $(date +%s),
+  "status": "ACTIVE"
+}
+EOF
+fi
+
+echo "[✓] temporary runtime state reset"
+log_reset "Temporary runtime state reset"
+
+# 3. Verify directory safety and readiness
+mkdir -p "$ACTIVE_DIR" "$WORKSPACES_DIR" "$LOGS_DIR"
+chmod 700 "$RUNTIME_BASE" "$ACTIVE_DIR" "$WORKSPACES_DIR" "$LOGS_DIR" 2>/dev/null || true
+
+echo "[✓] demo environment ready"
+log_reset "Demo environment initialized and ready"
+echo "=========================================================="
+exit 0

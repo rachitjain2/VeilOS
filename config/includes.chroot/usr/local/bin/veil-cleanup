@@ -15,6 +15,7 @@ LOGS_DIR="${RUNTIME_BASE}/logs"
 LOG_FILE="${LOGS_DIR}/veil-cleanup.log"
 
 mkdir -p "$ACTIVE_DIR" "$WORKSPACES_DIR" "$LOGS_DIR"
+chmod 700 "$RUNTIME_BASE" "$ACTIVE_DIR" "$WORKSPACES_DIR" "$LOGS_DIR" 2>/dev/null || true
 
 log_event() {
     local event_type="$1"

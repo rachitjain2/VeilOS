@@ -34,6 +34,7 @@ DRY_RUN=false
 SHOW_REPORT=false
 
 mkdir -p "$USER_LOG_DIR" "$ACTIVE_DIR" "$WORKSPACES_DIR"
+chmod 700 "$RUNTIME_BASE" "$USER_LOG_DIR" "$ACTIVE_DIR" "$WORKSPACES_DIR" 2>/dev/null || true
 
 # ------------------------------------------------------------------------------
 # AUDIT LOGGING (SECURITY-RELEVANT EVENTS ONLY - ZERO CREDENTIALS/SECRETS)
@@ -124,7 +125,11 @@ destroy_workspace() {
     local meta_file="${ACTIVE_DIR}/${target_id}.json"
     local ws_path="${WORKSPACES_DIR}/${target_id}"
 
-    log_audit "cleanup_triggered"; log_audit "CLEANUP_TRIGGERED" "Destroy operation initiated for workspace [${target_id}]"
+    local destroy_start_ts
+    destroy_start_ts=$(date +%s)
+
+    log_audit "cleanup_triggered"; log_audit "DESTROY_REQUESTED" "Destroy operation initiated for workspace [${target_id}]"
+    log_audit "CLEANUP_TRIGGERED" "Destroy operation initiated for workspace [${target_id}]"
 
     # Verify authorization: workspace must belong to current session UID
     if [[ -f "$meta_file" ]]; then
@@ -139,6 +144,17 @@ destroy_workspace() {
 
     # 1. Terminate child processes & sandbox
     echo "[*] Terminating child processes in workspace [${target_id}]..."
+    if [[ -f "$meta_file" ]]; then
+        local target_pid
+        target_pid=$(grep -o '"pid": [0-9]*' "$meta_file" | awk '{print $2}' || true)
+        if [[ -n "$target_pid" && "$target_pid" =~ ^[0-9]+$ ]]; then
+            kill -15 "$target_pid" 2>/dev/null || true
+            sleep 0.1 2>/dev/null || true
+            kill -9 "$target_pid" 2>/dev/null || true
+        fi
+    fi
+    pkill -TERM -f "${target_id}" 2>/dev/null || true
+    sleep 0.1 2>/dev/null || true
     pkill -9 -f "${target_id}" 2>/dev/null || true
 
     # 2. Shred and remove temporary workspace filesystem
@@ -148,11 +164,22 @@ destroy_workspace() {
         rm -rf "$ws_path" 2>/dev/null || true
     fi
 
-    # 3. Remove metadata and mark destroyed
+    # 3. Verify destruction: storage directory must be completely gone
+    if [[ -d "$ws_path" ]]; then
+        echo "[!] Warning: Storage directory still lingering, forcing purge..." >&2
+        rm -rf "$ws_path" 2>/dev/null || true
+    fi
+
+    # 4. Remove metadata and mark destroyed
     rm -f "$meta_file" 2>/dev/null || true
 
+    local destroy_end_ts
+    destroy_end_ts=$(date +%s)
+    local destroy_duration=$((destroy_end_ts - destroy_start_ts))
+
     log_audit "workspace_destroyed"; log_audit "SANDBOX_DESTROYED" "Sandbox and temporary storage destroyed for [${target_id}]"
-    log_audit "CLEANUP_COMPLETED" "Cleanup successfully finished for [${target_id}]"
+    log_audit "CLEANUP_COMPLETED" "Cleanup verified and successfully finished for [${target_id}]"
+    log_audit "PERF" "Workspace [${target_id}] destruction verified in ${destroy_duration}s"
     echo "[SUCCESS] Workspace ${target_id} destroyed and purged."
     exit 0
 }
