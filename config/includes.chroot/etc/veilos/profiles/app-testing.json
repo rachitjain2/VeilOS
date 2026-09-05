@@ -8,7 +8,7 @@
     "Camera": "BLOCKED (ENFORCED)",
     "Microphone": "BLOCKED (ENFORCED)",
     "USB": "BLOCKED (ENFORCED)",
-    "Network": "ALLOWED (ENFORCED)",
+    "Network": "BLOCKED (ENFORCED)",
     "Storage": "TEMPORARY (ENFORCED)"
   },
   "executable": "/usr/local/bin/veilos-app-testing-starter",
@@ -21,9 +21,9 @@
     "allow_tmp": true
   },
   "network_policy": {
-    "enabled": true,
+    "enabled": false,
     "configurable": true,
-    "dns": "system"
+    "dns": "none"
   },
   "storage_policy": {
     "persistent_storage": false,

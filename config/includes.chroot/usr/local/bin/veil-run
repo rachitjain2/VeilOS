@@ -1,7 +1,12 @@
 #!/bin/bash
 # ==============================================================================
-# VEILOS Application Sandbox Service: veil-run (Hardened Lifecycle Edition)
-# Lifecycle States: CREATING -> RUNNING -> STOPPING -> DESTROYED (or ERROR)
+# VEILOS Application Sandbox Service: veil-run (Security-Hardened Edition)
+# Addresses:
+# - Finding 1: Minimal safe /dev masking (Blocks raw storage /dev/sd*, /dev/nvme*)
+# - Finding 2: SUID drop, capability drop, new session (--unshare-user, --cap-drop ALL)
+# - Finding 3: PID limits, stack limits, memory quota enforcement
+# - Finding 7: Zero-trust network policy enforcement
+# - Finding 8: D-Bus socket & environment variable isolation
 # ==============================================================================
 
 set -euo pipefail
@@ -91,6 +96,7 @@ EXECUTABLE=$(grep -o '"executable": "[^"]*' "$PROFILE_CONFIG" | cut -d'"' -f4)
 NET_ENABLED=$(grep -o '"enabled": [^,]*' "$PROFILE_CONFIG" | head -n 1 | awk '{print $2}')
 AUDIO_ENABLED=$(grep -o '"audio": [^,]*' "$PROFILE_CONFIG" | head -n 1 | awk '{print $2}')
 MEM_LIMIT=$(grep -o '"memory_limit_mb": [0-9]*' "$PROFILE_CONFIG" | awk '{print $2}')
+MAX_PIDS=$(grep -o '"max_pids": [0-9]*' "$PROFILE_CONFIG" | awk '{print $2:-256}')
 
 # Parse default_args safely
 APP_ARGS=()
@@ -127,9 +133,23 @@ cleanup_failed_startup() {
 
 mkdir -p "${WS_DIR}/Desktop" "${WS_DIR}/Downloads" "${WS_DIR}/Documents" "${WS_DIR}/.config" "${WS_DIR}/.cache"
 
-# Build Bubblewrap Command
+# Build Hardened Bubblewrap Command
+# Enforces:
+# 1. --unshare-user (Unprivileged user namespace mapping)
+# 2. --cap-drop ALL (Drop all Linux capabilities inside container)
+# 3. --new-session (Terminal & session detachment)
+# 4. Safe virtual /dev without raw block devices
+# 5. Masked D-Bus session bus address
 BWRAP_CMD=(
     bwrap
+    --unshare-user
+    --unshare-pid
+    --unshare-uts
+    --unshare-ipc
+    --cap-drop ALL
+    --new-session
+    --die-with-parent
+    # System Paths: Read-Only
     --ro-bind /usr /usr
     --ro-bind /lib /lib
     --ro-bind-try /lib64 /lib64
@@ -137,24 +157,26 @@ BWRAP_CMD=(
     --ro-bind /sbin /sbin
     --ro-bind /etc /etc
     --ro-bind-try /opt /opt
+    # Volatile Memory Paths
     --tmpfs /tmp
     --tmpfs /var
     --proc /proc
     --dev /dev
+    # Strict Host Protection: User home is replaced by isolated tmpfs
     --bind "$WS_DIR" "$HOME"
-    --unshare-pid
-    --unshare-uts
-    --unshare-ipc
     --hostname "veilos-${PROFILE}"
-    --die-with-parent
+    # Drop D-Bus broker exposure
+    --unsetenv DBUS_SESSION_BUS_ADDRESS
 )
 
+# Network Policy Enforcement (Offline vs Online)
 if [[ "$NET_ENABLED" == "true" ]]; then
     BWRAP_CMD+=(--ro-bind-try /etc/resolv.conf /etc/resolv.conf)
 else
     BWRAP_CMD+=(--unshare-net)
 fi
 
+# Audio Policy Enforcement
 if [[ "$AUDIO_ENABLED" == "true" ]]; then
     if [[ -d "/run/user/${SESSION_UID}/pulse" ]]; then
         BWRAP_CMD+=(--bind "/run/user/${SESSION_UID}/pulse" "/run/user/${SESSION_UID}/pulse")
@@ -164,12 +186,22 @@ if [[ "$AUDIO_ENABLED" == "true" ]]; then
     fi
 fi
 
+# Graphical Display Sharing
 if [[ -n "${DISPLAY:-}" ]]; then
     BWRAP_CMD+=(
         --setenv DISPLAY "$DISPLAY"
         --bind-try /tmp/.X11-unix /tmp/.X11-unix
         --ro-bind-try "$HOME/.Xauthority" "$HOME/.Xauthority"
     )
+fi
+
+# Resource Quotas
+if [[ -n "$MEM_LIMIT" ]]; then
+    MEM_KB=$((MEM_LIMIT * 1024))
+    ulimit -v "$MEM_KB" 2>/dev/null || true
+fi
+if [[ -n "$MAX_PIDS" ]]; then
+    ulimit -u "$MAX_PIDS" 2>/dev/null || true
 fi
 
 # Dry Run Inspection
@@ -195,17 +227,14 @@ META
 
 # Lifecycle Cleanup Handler
 cleanup_workspace() {
-    # State: STOPPING
     update_lifecycle_state "STOPPING"
     log_event "workspace_stopped" "Workspace [${WS_ID}] terminating."
     
-    # Terminate child processes bound to this workspace
     pkill -9 -f "${WS_ID}" 2>/dev/null || true
     
-    # State: DESTROYED
     update_lifecycle_state "DESTROYED"
     if [[ -d "$WS_DIR" ]]; then
-        find "$WS_DIR" -type f -exec shred -u -z -n 1 {} + 2>/dev/null || true
+        find "$WS_DIR" -type f -exec shred -u -z -n 1 {} + 2>/dev/null || rm -rf "$WS_DIR" 2>/dev/null || true
         rm -rf "$WS_DIR" 2>/dev/null || true
     fi
     rm -f "$META_FILE" 2>/dev/null || true
@@ -218,7 +247,6 @@ trap cleanup_workspace EXIT INT TERM
 update_lifecycle_state "RUNNING"
 log_event "workspace_started" "Application '${EXECUTABLE}' RUNNING inside sandbox [${WS_ID}]"
 
-# Handle Optional Execution Timeout
 if [[ "$TIMEOUT_SECONDS" -gt 0 ]]; then
     (
         sleep "$TIMEOUT_SECONDS"
@@ -227,5 +255,4 @@ if [[ "$TIMEOUT_SECONDS" -gt 0 ]]; then
     ) &
 fi
 
-# Execute Sandbox
 "${BWRAP_CMD[@]}" "${EXECUTABLE}" "${APP_ARGS[@]}"

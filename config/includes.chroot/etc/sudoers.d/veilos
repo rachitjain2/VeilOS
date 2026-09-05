@@ -1,1 +1,4 @@
-veilos ALL=(ALL) NOPASSWD: /usr/sbin/cryptsetup, /usr/bin/mount, /usr/bin/umount, /usr/bin/mkdir, /usr/bin/chown
+# VEILOS Hardened Sudoers Policy
+# Restricts passwordless execution strictly to the vetted Vault service wrapper.
+# Arbitrary mount, umount, or chown commands are strictly forbidden.
+veilos ALL=(ALL) NOPASSWD: /usr/local/bin/veilos-vault-service
