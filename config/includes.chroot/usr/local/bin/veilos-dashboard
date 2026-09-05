@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-VEILOS Main Dashboard & Disposable Workspace Orchestrator
+VEILOS Main Dashboard & Real Sandbox Lifecycle Orchestrator
 Pure GTK3 + Python application providing a clean, cohesive privacy experience.
+Flow: User Clicks App -> App Profile Loaded -> Confirmation / Policy Dialog -> Real Sandbox Created ->
+Running Application Controller with live status & controls -> Destroy / Cleanup.
 """
 
 import os
@@ -9,6 +11,7 @@ import sys
 import subprocess
 import glob
 import json
+import time
 import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
@@ -16,11 +19,544 @@ from gi.repository import Gtk, Gdk, GLib, Pango
 
 CSS_PATH = "/usr/share/veilos/dashboard/css/style.css"
 LOGO_PATH = "/usr/share/veilos/branding/veilos-logo.svg"
+VEIL_RUN = "/usr/local/bin/veil-run"
+VEIL_SESSION = "/usr/local/bin/veil-session"
+VAULT_GUI = "/usr/local/bin/veilos-vault-gui"
+PRIVACY_CENTER = "/usr/local/bin/veilos-privacy-center"
+SETTINGS_FILE = os.path.expanduser("~/.config/veilos/settings.json")
+
+
+def load_settings():
+    default_settings = {"timeout_minutes": 30, "auto_destroy": True}
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return default_settings
+
+
+def save_settings(settings):
+    try:
+        os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
+        with open(SETTINGS_FILE, "w") as f:
+            json.dump(settings, f, indent=2)
+    except Exception:
+        pass
+
+
+class PreLaunchDialog(Gtk.Dialog):
+    """Pre-flight confirmation dialog presenting honest application profile policies."""
+    def __init__(self, parent, title_text, app_info, on_launch_callback):
+        super().__init__(title=title_text, transient_for=parent, flags=0)
+        self.set_default_size(440, 480)
+        self.set_position(Gtk.WindowPosition.CENTER_ON_PARENT)
+        self.get_style_context().add_class("veilos-window")
+        self.on_launch_callback = on_launch_callback
+
+        content = self.get_content_area()
+        content.set_spacing(14)
+        content.set_margin_top(20)
+        content.set_margin_bottom(20)
+        content.set_margin_start(24)
+        content.set_margin_end(24)
+
+        # Header
+        h_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        h_box.set_halign(Gtk.Align.CENTER)
+        lbl_title = Gtk.Label(label=title_text)
+        lbl_title.get_style_context().add_class("title-veil")
+        lbl_title.override_font(Pango.FontDescription("Ubuntu Bold 20"))
+        h_box.pack_start(lbl_title, False, False, 0)
+
+        sub_desc = app_info.get("description", "Private Computing")
+        lbl_sub = Gtk.Label(label=sub_desc)
+        lbl_sub.get_style_context().add_class("subtitle-veil")
+        h_box.pack_start(lbl_sub, False, False, 0)
+        content.pack_start(h_box, False, False, 0)
+
+        # Policy & Parameters Container
+        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        panel.get_style_context().add_class("status-container")
+
+        for key, val, tag_class in app_info.get("items", []):
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            k_lbl = Gtk.Label(label=f"{key}:")
+            k_lbl.get_style_context().add_class("status-label")
+            k_lbl.set_halign(Gtk.Align.START)
+            row.pack_start(k_lbl, False, False, 0)
+
+            v_lbl = Gtk.Label(label=val)
+            v_lbl.get_style_context().add_class(tag_class)
+            v_lbl.set_halign(Gtk.Align.END)
+            row.pack_end(v_lbl, False, False, 0)
+            panel.pack_start(row, False, False, 0)
+
+        # Optional stack or tools list
+        tools = app_info.get("installed_tools", [])
+        if tools:
+            sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            panel.pack_start(sep, False, False, 4)
+
+            t_title = Gtk.Label(label="Installed:")
+            t_title.get_style_context().add_class("status-label")
+            t_title.set_halign(Gtk.Align.START)
+            panel.pack_start(t_title, False, False, 2)
+
+            for t in tools:
+                t_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+                t_lbl = Gtk.Label(label=f"✓  {t}")
+                t_lbl.get_style_context().add_class("pill-allowed")
+                t_lbl.set_halign(Gtk.Align.START)
+                t_row.pack_start(t_lbl, False, False, 0)
+                panel.pack_start(t_row, False, False, 1)
+
+        content.pack_start(panel, True, True, 0)
+
+        # Buttons Row: [ CANCEL ]  [ LAUNCH PRIVATELY ]
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        btn_box.set_halign(Gtk.Align.CENTER)
+        btn_box.set_margin_top(10)
+
+        btn_cancel = Gtk.Button(label="[ CANCEL ]")
+        btn_cancel.get_style_context().add_class("fallback-btn")
+        btn_cancel.connect("clicked", lambda w: self.destroy())
+        btn_box.pack_start(btn_cancel, False, False, 0)
+
+        btn_launch = Gtk.Button(label="[ LAUNCH PRIVATELY ]")
+        btn_launch.get_style_context().add_class("primary-btn")
+        btn_launch.connect("clicked", self.on_launch_clicked)
+        btn_box.pack_start(btn_launch, False, False, 0)
+
+        content.pack_start(btn_box, False, False, 0)
+        self.show_all()
+
+    def on_launch_clicked(self, widget):
+        self.destroy()
+        if self.on_launch_callback:
+            self.on_launch_callback()
+
+
+class WorkspaceControllerWindow(Gtk.Window):
+    """Running Application View & Controller with live state, telemetry & security controls."""
+    def __init__(self, profile_id, app_name, privacy_spec):
+        super().__init__(title=f"VEILOS - {app_name}")
+        self.set_default_size(560, 640)
+        self.set_position(Gtk.WindowPosition.CENTER)
+        self.get_style_context().add_class("veilos-window")
+
+        self.profile_id = profile_id
+        self.app_name = app_name
+        self.privacy_spec = privacy_spec
+        self.ws_id = None
+        self.process = None
+        self.started_at_ts = None
+        self.status = "CREATING"
+        self.is_destroyed = False
+
+        self.apply_css()
+
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        main_box.set_margin_top(20)
+        main_box.set_margin_bottom(20)
+        main_box.set_margin_start(24)
+        main_box.set_margin_end(24)
+        self.add(main_box)
+
+        # 1. TOP BAR: VEILOS | <App Name> | ● STATUS
+        top_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        top_bar.get_style_context().add_class("status-container")
+        
+        lbl_brand = Gtk.Label(label="VEILOS")
+        lbl_brand.get_style_context().add_class("title-veil")
+        lbl_brand.override_font(Pango.FontDescription("Ubuntu Bold 16"))
+        top_bar.pack_start(lbl_brand, False, False, 0)
+
+        lbl_sep = Gtk.Label(label="|")
+        lbl_sep.get_style_context().add_class("status-label")
+        top_bar.pack_start(lbl_sep, False, False, 0)
+
+        self.lbl_app_name = Gtk.Label(label=app_name)
+        self.lbl_app_name.get_style_context().add_class("btn-title")
+        top_bar.pack_start(self.lbl_app_name, False, False, 0)
+
+        self.lbl_status = Gtk.Label(label="● CREATING")
+        self.lbl_status.get_style_context().add_class("pill-creating")
+        self.lbl_status.set_halign(Gtk.Align.END)
+        top_bar.pack_end(self.lbl_status, False, False, 0)
+
+        main_box.pack_start(top_bar, False, False, 0)
+
+        # 2. Status message banner
+        self.lbl_status_desc = Gtk.Label(label="Preparing isolated environment...")
+        self.lbl_status_desc.get_style_context().add_class("btn-desc")
+        self.lbl_status_desc.set_halign(Gtk.Align.START)
+        main_box.pack_start(self.lbl_status_desc, False, False, 0)
+
+        # 3. Main Area: Runtime Metadata Card
+        meta_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        meta_card.get_style_context().add_class("controller-panel")
+
+        self.lbl_ws_id = self.add_detail_row(meta_card, "Workspace ID:", "Allocating...")
+        self.lbl_started = self.add_detail_row(meta_card, "Started:", "--:--:--")
+        self.lbl_duration = self.add_detail_row(meta_card, "Duration:", "00:00:00")
+        self.lbl_env = self.add_detail_row(meta_card, "Environment:", "Isolated Ephemeral tmpfs")
+        self.lbl_app_exec = self.add_detail_row(meta_card, "Application:", privacy_spec.get("exec_name", app_name))
+
+        main_box.pack_start(meta_card, False, False, 0)
+
+        # 4. Side Panel / Security & Session Controls Box
+        sec_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        sec_box.get_style_context().add_class("status-container")
+
+        lbl_priv = Gtk.Label(label="PRIVACY & ACCESS POLICY")
+        lbl_priv.get_style_context().add_class("status-label")
+        lbl_priv.set_halign(Gtk.Align.START)
+        sec_box.pack_start(lbl_priv, False, False, 0)
+
+        # Privacy items
+        for p_name, p_val, p_class in privacy_spec.get("controls", []):
+            p_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            p_k = Gtk.Label(label=f"{p_name}:")
+            p_k.get_style_context().add_class("status-label")
+            p_v = Gtk.Label(label=p_val)
+            p_v.get_style_context().add_class(p_class)
+            p_row.pack_start(p_k, False, False, 0)
+            p_row.pack_end(p_v, False, False, 0)
+            sec_box.pack_start(p_row, False, False, 0)
+
+        main_box.pack_start(sec_box, False, False, 0)
+
+        # 5. Action Controls Row: [ MINIMIZE ] [ RESTART ] [ STOP ] [ DESTROY WORKSPACE ]
+        ctrl_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        ctrl_box.set_homogeneous(True)
+
+        self.btn_minimize = Gtk.Button(label="[ MINIMIZE ]")
+        self.btn_minimize.get_style_context().add_class("fallback-btn")
+        self.btn_minimize.connect("clicked", lambda w: self.iconify())
+        ctrl_box.pack_start(self.btn_minimize, True, True, 0)
+
+        self.btn_restart = Gtk.Button(label="[ RESTART ]")
+        self.btn_restart.get_style_context().add_class("action-btn")
+        self.btn_restart.connect("clicked", self.on_restart_clicked)
+        ctrl_box.pack_start(self.btn_restart, True, True, 0)
+
+        self.btn_stop = Gtk.Button(label="[ STOP ]")
+        self.btn_stop.get_style_context().add_class("action-btn")
+        self.btn_stop.connect("clicked", self.on_stop_clicked)
+        ctrl_box.pack_start(self.btn_stop, True, True, 0)
+
+        self.btn_destroy = Gtk.Button(label="[ DESTROY WORKSPACE ]")
+        self.btn_destroy.get_style_context().add_class("danger-btn")
+        self.btn_destroy.connect("clicked", self.on_destroy_clicked)
+        ctrl_box.pack_start(self.btn_destroy, True, True, 0)
+
+        main_box.pack_start(ctrl_box, False, False, 6)
+
+        # Destruction Status Banner
+        self.lbl_destroy_banner = Gtk.Label()
+        self.lbl_destroy_banner.set_line_wrap(True)
+        self.lbl_destroy_banner.get_style_context().add_class("pill-destroyed")
+        main_box.pack_start(self.lbl_destroy_banner, False, False, 0)
+
+        self.show_all()
+        self.lbl_destroy_banner.hide()
+
+        # Start the real sandbox via backend
+        self.launch_sandbox()
+        GLib.timeout_add_seconds(1, self.update_tick)
+
+    def apply_css(self):
+        if os.path.exists(CSS_PATH):
+            provider = Gtk.CssProvider()
+            provider.load_from_path(CSS_PATH)
+            screen = Gdk.Screen.get_default()
+            if screen:
+                Gtk.StyleContext.add_provider_for_screen(screen, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+    def add_detail_row(self, container, label_text, default_val):
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        lbl = Gtk.Label(label=label_text)
+        lbl.get_style_context().add_class("status-label")
+        lbl.set_halign(Gtk.Align.START)
+        val = Gtk.Label(label=default_val)
+        val.get_style_context().add_class("status-val")
+        val.set_halign(Gtk.Align.END)
+        row.pack_start(lbl, False, False, 0)
+        row.pack_end(val, False, False, 0)
+        container.pack_start(row, False, False, 2)
+        return val
+
+    def launch_sandbox(self):
+        settings = load_settings()
+        timeout_secs = int(settings.get("timeout_minutes", 30)) * 60
+        cmd = [VEIL_RUN, "--profile", self.profile_id]
+        if timeout_secs > 0:
+            cmd.extend(["--timeout", str(timeout_secs)])
+
+        try:
+            self.process = subprocess.Popen(cmd)
+            self.status = "CREATING"
+            self.lbl_status.set_text("● CREATING")
+            self.lbl_status.get_style_context().remove_class("pill-running")
+            self.lbl_status.get_style_context().remove_class("pill-stopped")
+            self.lbl_status.get_style_context().add_class("pill-creating")
+            self.lbl_status_desc.set_text("Preparing isolated environment...")
+        except Exception:
+            self.status = "ERROR"
+            self.lbl_status.set_text("● ERROR")
+            self.lbl_status_desc.set_text("The VEILOS sandbox service is unavailable.")
+
+    def update_tick(self):
+        if self.is_destroyed:
+            return False
+
+        uid = os.getuid()
+        runtime_base = os.environ.get("XDG_RUNTIME_DIR", f"/tmp/veilos-{uid}")
+        meta_dir = f"{runtime_base}/active_workspaces"
+
+        # Look up active workspace
+        if not self.ws_id and os.path.exists(meta_dir):
+            matches = glob.glob(f"{meta_dir}/veil_ws_{self.profile_id}_*.json")
+            if matches:
+                # Get newest file
+                matches.sort(key=os.path.getmtime, reverse=True)
+                newest = matches[0]
+                try:
+                    with open(newest, "r") as f:
+                        data = json.load(f)
+                    self.ws_id = data.get("id") or data.get("workspaceId")
+                    self.started_at_ts = data.get("created_at") or data.get("started_at") or time.time()
+                    self.lbl_ws_id.set_text(self.ws_id)
+                    st_str = time.strftime("%H:%M:%S", time.localtime(self.started_at_ts))
+                    self.lbl_started.set_text(st_str)
+                    exec_val = data.get("executable", self.privacy_spec.get("exec_name", self.app_name))
+                    self.lbl_app_exec.set_text(os.path.basename(exec_val))
+                except Exception:
+                    pass
+
+        # Update duration and status if running
+        if self.ws_id:
+            meta_file = f"{meta_dir}/{self.ws_id}.json"
+            if os.path.exists(meta_file):
+                try:
+                    with open(meta_file, "r") as f:
+                        data = json.load(f)
+                    backend_status = data.get("status", "RUNNING")
+                    if backend_status != self.status:
+                        self.status = backend_status
+                        if self.status == "RUNNING":
+                            self.lbl_status.set_text("● RUNNING")
+                            self.lbl_status.get_style_context().remove_class("pill-creating")
+                            self.lbl_status.get_style_context().remove_class("pill-stopped")
+                            self.lbl_status.get_style_context().add_class("pill-running")
+                            self.lbl_status_desc.set_text(f"{self.app_name} is running inside an isolated workspace.")
+                        elif self.status == "STOPPED":
+                            self.lbl_status.set_text("● STOPPED")
+                            self.lbl_status.get_style_context().remove_class("pill-running")
+                            self.lbl_status.get_style_context().add_class("pill-stopped")
+                            self.lbl_status_desc.set_text("Application stopped. Workspace remains allocated until destroyed.")
+                except Exception:
+                    pass
+            else:
+                # Metadata disappeared -> workspace stopped/destroyed
+                if not self.is_destroyed:
+                    self.mark_destroyed_view(user_initiated=False)
+                    return False
+
+            if self.started_at_ts and self.status == "RUNNING":
+                elapsed = int(time.time() - self.started_at_ts)
+                mins, secs = divmod(elapsed, 60)
+                hours, mins = divmod(mins, 60)
+                self.lbl_duration.set_text(f"{hours:02d}:{mins:02d}:{secs:02d}")
+
+        # Check process lifecycle
+        if self.process and self.process.poll() is not None:
+            if not self.is_destroyed:
+                self.mark_destroyed_view(user_initiated=False)
+                return False
+
+        return True
+
+    def on_stop_clicked(self, widget):
+        if self.is_destroyed:
+            self.show_destroyed_alert()
+            return
+
+        if self.ws_id:
+            subprocess.run([VEIL_RUN, "--stop", self.ws_id], check=False)
+            self.status = "STOPPED"
+            self.lbl_status.set_text("● STOPPED")
+            self.lbl_status.get_style_context().remove_class("pill-running")
+            self.lbl_status.get_style_context().add_class("pill-stopped")
+            self.lbl_status_desc.set_text("Application stopped. Workspace remains allocated until destroyed.")
+            self.btn_stop.set_sensitive(False)
+
+    def on_restart_clicked(self, widget):
+        if self.is_destroyed:
+            self.show_destroyed_alert()
+            return
+
+        if self.ws_id:
+            subprocess.run([VEIL_RUN, "--destroy", self.ws_id], check=False)
+        self.ws_id = None
+        self.started_at_ts = None
+        self.btn_stop.set_sensitive(True)
+        self.launch_sandbox()
+
+    def on_destroy_clicked(self, widget):
+        if self.is_destroyed:
+            self.show_destroyed_alert()
+            return
+
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            flags=0,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.NONE,
+            text="Destroy this private workspace?"
+        )
+        dialog.format_secondary_text(
+            "All temporary workspace data will be removed according to the configured cleanup policy."
+        )
+        dialog.add_button("CANCEL", Gtk.ResponseType.CANCEL)
+        dialog.add_button("DESTROY", Gtk.ResponseType.OK)
+
+        res = dialog.run()
+        dialog.destroy()
+
+        if res == Gtk.ResponseType.OK:
+            if self.ws_id:
+                subprocess.run([VEIL_RUN, "--destroy", self.ws_id], check=False)
+            self.mark_destroyed_view(user_initiated=True)
+
+    def mark_destroyed_view(self, user_initiated=True):
+        self.is_destroyed = True
+        self.status = "DESTROYED"
+        self.lbl_status.set_text("● DESTROYED")
+        self.lbl_status.get_style_context().remove_class("pill-running")
+        self.lbl_status.get_style_context().remove_class("pill-creating")
+        self.lbl_status.get_style_context().remove_class("pill-stopped")
+        self.lbl_status.get_style_context().add_class("pill-destroyed")
+        
+        self.lbl_status_desc.set_text("Temporary workspace has been cleaned and unmounted.")
+        self.lbl_destroy_banner.set_text(
+            "✓ WORKSPACE DESTROYED\n"
+            "All temporary data, filesystems, and child processes have been cleanly wiped."
+        )
+        self.lbl_destroy_banner.show()
+
+        self.btn_stop.set_sensitive(False)
+        self.btn_restart.set_sensitive(False)
+        self.btn_destroy.set_sensitive(False)
+
+    def show_destroyed_alert(self):
+        err_dialog = Gtk.MessageDialog(
+            transient_for=self,
+            flags=0,
+            message_type=Gtk.MessageType.ERROR,
+            buttons=Gtk.ButtonsType.OK,
+            text="Access Denied"
+        )
+        err_dialog.format_secondary_text(
+            "Access denied / unavailable. This workspace has been destroyed and its isolated memory shredded."
+        )
+        err_dialog.run()
+        err_dialog.destroy()
+
+
+class SettingsDialog(Gtk.Dialog):
+    """VEILOS Preferences & Automatic Workspace Timeout Configuration."""
+    def __init__(self, parent):
+        super().__init__(title="Settings - VEILOS Preferences", transient_for=parent, flags=0)
+        self.set_default_size(440, 360)
+        self.set_position(Gtk.WindowPosition.CENTER_ON_PARENT)
+        self.get_style_context().add_class("veilos-window")
+
+        self.settings = load_settings()
+
+        content = self.get_content_area()
+        content.set_spacing(14)
+        content.set_margin_top(20)
+        content.set_margin_bottom(20)
+        content.set_margin_start(24)
+        content.set_margin_end(24)
+
+        # Title
+        t_lbl = Gtk.Label(label="SETTINGS")
+        t_lbl.get_style_context().add_class("title-veil")
+        t_lbl.override_font(Pango.FontDescription("Ubuntu Bold 18"))
+        content.pack_start(t_lbl, False, False, 0)
+
+        sub_lbl = Gtk.Label(label="DISPOSABLE WORKSPACE POLICIES")
+        sub_lbl.get_style_context().add_class("subtitle-veil")
+        content.pack_start(sub_lbl, False, False, 0)
+
+        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        panel.get_style_context().add_class("status-container")
+
+        # Timeout Row
+        row_t = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        lbl_t = Gtk.Label(label="Workspace Inactivity Timeout:")
+        lbl_t.get_style_context().add_class("status-label")
+        row_t.pack_start(lbl_t, False, False, 0)
+
+        self.combo_timeout = Gtk.ComboBoxText()
+        self.combo_timeout.append("15", "15 minutes")
+        self.combo_timeout.append("30", "30 minutes (Default)")
+        self.combo_timeout.append("60", "60 minutes")
+        self.combo_timeout.append("0", "Never (Disabled)")
+
+        cur_t = str(self.settings.get("timeout_minutes", 30))
+        if cur_t in ["15", "30", "60", "0"]:
+            self.combo_timeout.set_active_id(cur_t)
+        else:
+            self.combo_timeout.set_active_id("30")
+
+        row_t.pack_end(self.combo_timeout, False, False, 0)
+        panel.pack_start(row_t, False, False, 0)
+
+        # Explanation
+        lbl_exp = Gtk.Label(
+            label="When timeout occurs:\n"
+                  "WARN USER ➔ COUNTDOWN ➔ DESTROY WORKSPACE\n"
+                  "(Protects forgotten sensitive work from lingering in RAM)"
+        )
+        lbl_exp.get_style_context().add_class("btn-desc")
+        lbl_exp.set_line_wrap(True)
+        panel.pack_start(lbl_exp, False, False, 4)
+
+        content.pack_start(panel, True, True, 0)
+
+        # Buttons
+        b_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        b_row.set_halign(Gtk.Align.CENTER)
+
+        btn_save = Gtk.Button(label="SAVE PREFERENCES")
+        btn_save.get_style_context().add_class("primary-btn")
+        btn_save.connect("clicked", self.on_save_clicked)
+        b_row.pack_start(btn_save, False, False, 0)
+
+        btn_close = Gtk.Button(label="Close")
+        btn_close.get_style_context().add_class("fallback-btn")
+        btn_close.connect("clicked", lambda w: self.destroy())
+        b_row.pack_start(btn_close, False, False, 0)
+
+        content.pack_start(b_row, False, False, 0)
+        self.show_all()
+
+    def on_save_clicked(self, widget):
+        sel_id = self.combo_timeout.get_active_id() or "30"
+        self.settings["timeout_minutes"] = int(sel_id)
+        save_settings(self.settings)
+        self.destroy()
+
 
 class VeilosDashboard(Gtk.Window):
     def __init__(self):
-        super().__init__(title="VEILOS - Disposable Computing")
-        self.set_default_size(820, 860)
+        super().__init__(title="VEILOS - Private Computing")
+        self.set_default_size(840, 890)
         self.set_position(Gtk.WindowPosition.CENTER)
         self.get_style_context().add_class("veilos-window")
 
@@ -61,46 +597,49 @@ class VeilosDashboard(Gtk.Window):
         # 3. Action Grid (The Core Operations)
         actions_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         
-        # [ PRIVATE BROWSER ] - Enhanced Polished Card
+        # [ PRIVATE BROWSER ]
         btn_browser = self.create_action_card(
-            title="PRIVATE BROWSER",
+            title="🌐 Private Browser",
             description="Browse inside a temporary isolated environment.",
-            icon_name="firefox-esr",
+            icon_name="web-browser",
             tags=[("Network: ", "Allowed", "pill-allowed"),
                   ("Local Files: ", "Blocked", "pill-blocked"),
                   ("Persistence: ", "Off", "pill-off")],
-            on_click=self.launch_browser
+            on_click=self.on_click_browser
         )
         actions_box.pack_start(btn_browser, False, False, 0)
 
         # [ DEVELOPER WORKSPACE ]
         btn_dev = self.create_action_card(
-            title="DEVELOPER WORKSPACE",
+            title="💻 Developer Workspace",
             description="Code inside a disposable environment.",
             icon_name="utilities-terminal",
-            tags=[("Stack: ", "Node.js ? | Python ? | Git ? | npm ? | pip ?", "pill-allowed")],
-            on_click=self.launch_dev
+            tags=[("Stack: ", "Node.js ✓ | Python ✓ | Git ✓ | npm ✓ | pip ✓", "pill-allowed")],
+            on_click=self.on_click_dev
         )
         actions_box.pack_start(btn_dev, False, False, 0)
 
-        # [ APP SANDBOX ]
+        # [ APP TESTING ]
         btn_sandbox = self.create_action_card(
-            title="APP TESTING",
+            title="🧪 App Testing",
             description="Run software inside a disposable environment.",
             icon_name="system-run",
-            tags=[("Files: ", "BLOCKED", "pill-blocked"),
-                  ("Camera: ", "BLOCKED", "pill-blocked"),
-                  ("Microphone: ", "BLOCKED", "pill-blocked"),
-                  ("USB: ", "BLOCKED", "pill-blocked"),
-                  ("Network: ", "ALLOWED", "pill-allowed"),
-                  ("Storage: ", "TEMPORARY", "pill-off")],
-            on_click=self.launch_app_sandbox
+            tags=[("Status: ", "ISOLATED | TEMPORARY | RESTRICTED", "pill-off"),
+                  ("Files/Devices: ", "BLOCKED", "pill-blocked")],
+            on_click=self.on_click_app_sandbox
         )
         actions_box.pack_start(btn_sandbox, False, False, 0)
 
+        # System Utilities Separator
+        lbl_util = Gtk.Label(label="SYSTEM UTILITIES")
+        lbl_util.get_style_context().add_class("status-label")
+        lbl_util.set_halign(Gtk.Align.START)
+        lbl_util.set_margin_top(4)
+        actions_box.pack_start(lbl_util, False, False, 0)
+
         # [ SECURE VAULT ]
         btn_vault = self.create_action_card(
-            title="SECURE VAULT",
+            title="🔐 Secure Vault",
             description="Manage encrypted LUKS container for explicit data persistence.",
             icon_name="security-high",
             tags=[("Encryption: ", "LUKS2 (AES-XTS)", "pill-allowed"),
@@ -111,7 +650,7 @@ class VeilosDashboard(Gtk.Window):
 
         # [ PRIVACY CENTER ]
         btn_privacy = self.create_action_card(
-            title="PRIVACY CENTER",
+            title="🛡 Privacy Center",
             description="Inspect running workspaces, network policies, or destroy memory.",
             icon_name="dialog-information",
             tags=[("Telemetry: ", "Local RAM Only", "pill-allowed")],
@@ -119,9 +658,19 @@ class VeilosDashboard(Gtk.Window):
         )
         actions_box.pack_start(btn_privacy, False, False, 0)
 
+        # [ SETTINGS ]
+        btn_settings = self.create_action_card(
+            title="⚙ Settings",
+            description="Configure workspace timeouts and disposable lifecycle preferences.",
+            icon_name="preferences-system",
+            tags=[("Timeout: ", "Configurable (30m Default)", "pill-off")],
+            on_click=self.open_settings
+        )
+        actions_box.pack_start(btn_settings, False, False, 0)
+
         # [ END SESSION ]
         btn_end = self.create_danger_card(
-            title="END SESSION",
+            title="⏻ End Session",
             description="Scrub all active disposable environments and securely log out",
             on_click=self.end_session
         )
@@ -168,8 +717,9 @@ class VeilosDashboard(Gtk.Window):
             css_provider.load_from_data(raw)
 
         screen = Gdk.Screen.get_default()
-        style_context = Gtk.StyleContext()
-        style_context.add_provider_for_screen(screen, css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        if screen:
+            style_context = Gtk.StyleContext()
+            style_context.add_provider_for_screen(screen, css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
     def build_status_panel(self):
         panel = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
@@ -322,42 +872,150 @@ class VeilosDashboard(Gtk.Window):
         btn.add(hbox)
         return btn
 
-    # Handlers
-    def launch_browser(self):
-        subprocess.Popen(["/usr/local/bin/veil-run", "--profile", "private-browser"])
+    # Handlers for Applications (Pre-flight dialogs followed by real sandbox launch)
+    def on_click_browser(self):
+        info = {
+            "description": "Browse inside a temporary isolated environment.",
+            "exec_name": "Chromium",
+            "items": [
+                ("Application", "Chromium", "pill-allowed"),
+                ("Workspace", "Temporary", "pill-off"),
+                ("Network", "Allowed", "pill-allowed"),
+                ("Local Files", "Blocked", "pill-blocked"),
+                ("Camera", "Blocked", "pill-blocked"),
+                ("Microphone", "Blocked", "pill-blocked")
+            ]
+        }
+        privacy_spec = {
+            "exec_name": "Chromium",
+            "controls": [
+                ("Local Files", "BLOCKED", "pill-blocked"),
+                ("Internet", "ALLOWED", "pill-allowed"),
+                ("Camera", "BLOCKED", "pill-blocked"),
+                ("Microphone", "BLOCKED", "pill-blocked"),
+                ("Storage", "TEMPORARY", "pill-off")
+            ]
+        }
+        dlg = PreLaunchDialog(
+            parent=self,
+            title_text="PRIVATE BROWSER",
+            app_info=info,
+            on_launch_callback=lambda: WorkspaceControllerWindow("private-browser", "Private Browser", privacy_spec)
+        )
 
-    def launch_dev(self):
-        subprocess.Popen(["/usr/local/bin/veil-run", "--profile", "development"])
+    def on_click_dev(self):
+        info = {
+            "description": "Code inside a disposable environment.",
+            "exec_name": "Code Editor & Terminal",
+            "items": [
+                ("Application", "Code Editor & Terminal", "pill-allowed"),
+                ("Workspace", "Temporary", "pill-off"),
+                ("Network", "Allowed", "pill-allowed"),
+                ("Local Files", "Blocked", "pill-blocked")
+            ],
+            "installed_tools": ["Node.js", "npm", "Python", "pip", "Git", "Terminal", "Code Editor"]
+        }
+        privacy_spec = {
+            "exec_name": "Code Editor & Terminal",
+            "controls": [
+                ("Local Files", "BLOCKED", "pill-blocked"),
+                ("Internet", "ALLOWED", "pill-allowed"),
+                ("Camera", "BLOCKED", "pill-blocked"),
+                ("Microphone", "BLOCKED", "pill-blocked"),
+                ("Storage", "TEMPORARY", "pill-off")
+            ]
+        }
+        dlg = PreLaunchDialog(
+            parent=self,
+            title_text="DEVELOPER WORKSPACE",
+            app_info=info,
+            on_launch_callback=lambda: WorkspaceControllerWindow("development", "Developer Workspace", privacy_spec)
+        )
 
-    def launch_app_sandbox(self):
-        subprocess.Popen(["/usr/local/bin/veil-run", "--profile", "app-testing"])
+    def on_click_app_sandbox(self):
+        info = {
+            "description": "Run software inside a disposable environment.",
+            "exec_name": "Isolated Test Runner",
+            "items": [
+                ("Application", "Isolated Test Runner", "pill-allowed"),
+                ("Workspace", "Temporary", "pill-off"),
+                ("Network", "Blocked (Zero-Trust)", "pill-blocked"),
+                ("Local Files", "Blocked", "pill-blocked"),
+                ("Camera", "Blocked", "pill-blocked"),
+                ("Microphone", "Blocked", "pill-blocked"),
+                ("USB", "Blocked", "pill-blocked"),
+                ("Storage", "TEMPORARY", "pill-off"),
+                ("Status", "ISOLATED | TEMPORARY | RESTRICTED", "pill-off")
+            ]
+        }
+        privacy_spec = {
+            "exec_name": "Isolated Test Runner",
+            "controls": [
+                ("Local Files", "BLOCKED", "pill-blocked"),
+                ("Internet", "BLOCKED", "pill-blocked"),
+                ("Camera", "BLOCKED", "pill-blocked"),
+                ("Microphone", "BLOCKED", "pill-blocked"),
+                ("Storage", "TEMPORARY", "pill-off")
+            ]
+        }
+        dlg = PreLaunchDialog(
+            parent=self,
+            title_text="APP TESTING",
+            app_info=info,
+            on_launch_callback=lambda: WorkspaceControllerWindow("app-testing", "App Testing", privacy_spec)
+        )
 
+    # Handlers for System Utilities
     def launch_vault(self):
-        subprocess.Popen(["/usr/local/bin/veilos-vault-gui"])
+        subprocess.Popen([VAULT_GUI])
 
     def launch_privacy_center(self):
-        subprocess.Popen(["/usr/local/bin/veilos-privacy-center"])
+        subprocess.Popen([PRIVACY_CENTER])
+
+    def open_settings(self):
+        SettingsDialog(self)
 
     def end_session(self):
         dialog = Gtk.MessageDialog(
             transient_for=self,
             flags=0,
             message_type=Gtk.MessageType.WARNING,
-            buttons=Gtk.ButtonsType.OK_CANCEL,
-            text="End VEILOS Session?"
+            buttons=Gtk.ButtonsType.NONE,
+            text="End this temporary session?"
         )
         dialog.format_secondary_text(
-            "This will immediately destroy all running disposable workspaces, "
-            "scrub temporary RAM state, and log out."
+            "Temporary application environments will be terminated.\n"
+            "All volatile workspace data will be permanently scrubbed."
         )
+        dialog.add_button("CANCEL", Gtk.ResponseType.CANCEL)
+        dialog.add_button("END SESSION", Gtk.ResponseType.OK)
+
         res = dialog.run()
         dialog.destroy()
+
         if res == Gtk.ResponseType.OK:
-            subprocess.run(["pkill", "-f", "bwrap"], check=False)
-            uid = os.getuid()
-            runtime_base = os.environ.get("XDG_RUNTIME_DIR", f"/tmp/veilos-{uid}")
-            subprocess.run(f"rm -rf {runtime_base}/workspaces", shell=True, check=False)
+            # Step 1: Execute termination through session manager
+            subprocess.run([VEIL_SESSION, "terminate"], check=False)
+            
+            # Step 2: Show confirmation
+            info_dlg = Gtk.MessageDialog(
+                transient_for=self,
+                flags=0,
+                message_type=Gtk.MessageType.INFO,
+                buttons=Gtk.ButtonsType.OK,
+                text="SESSION TERMINATED"
+            )
+            info_dlg.format_secondary_text(
+                "All sandboxes halted. Temporary memory erased.\n"
+                "Initiating system logout..."
+            )
+            info_dlg.run()
+            info_dlg.destroy()
+
+            # Step 3: Logout
             subprocess.Popen(["xfce4-session-logout", "--logout"])
+            self.destroy()
+
 
 def main():
     app = VeilosDashboard()
@@ -365,6 +1023,6 @@ def main():
     app.show_all()
     Gtk.main()
 
+
 if __name__ == "__main__":
     main()
-

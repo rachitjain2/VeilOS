@@ -28,6 +28,7 @@ AUDIT_LOG="${USER_LOG_DIR}/audit.log"
 
 PROFILE_ARG=""
 DESTROY_ARG=""
+STOP_ARG=""
 TIMEOUT_SECONDS=0
 DRY_RUN=false
 SHOW_REPORT=false
@@ -56,18 +57,56 @@ VEILOS Application Profile & Sandbox Policy Engine (veil-run)
 
 Usage:
   veil-run --profile <profile-id> [OPTIONS]
+  veil-run --stop <workspace-id>
   veil-run --destroy <workspace-id>
   veil-run --security-report <profile-id>
   veil-run --list-profiles
 
 Options:
   -p, --profile <id>         Profile ID to validate and launch
+  -s, --stop <ws-id>         Stop the application running inside workspace
   -d, --destroy <ws-id>      Safely terminate and destroy an active workspace
   --security-report <id>     Display internal security transparency audit for profile
   --timeout <seconds>        Execution timeout duration before auto-destruction
   --dry-run                  Output constructed bwrap execution command without launching
   -h, --help                 Show this help menu
 EOF
+    exit 0
+}
+
+# ------------------------------------------------------------------------------
+# STOP OPERATION: veil-run --stop <workspace-id>
+# ------------------------------------------------------------------------------
+stop_workspace() {
+    local target_id="$1"
+    if [[ "$target_id" =~ [^a-zA-Z0-9_-] ]]; then
+        echo "Error: Invalid workspace ID format." >&2
+        exit 1
+    fi
+
+    local meta_file="${ACTIVE_DIR}/${target_id}.json"
+    if [[ ! -f "$meta_file" ]]; then
+        echo "Error: Workspace [${target_id}] not found or not active." >&2
+        exit 1
+    fi
+
+    local owner_uid
+    owner_uid=$(grep -o '"owner_uid": [0-9]*' "$meta_file" | awk '{print $2}' || echo "$SESSION_UID")
+    if [[ "$owner_uid" != "$SESSION_UID" ]]; then
+        echo "Error: Unauthorized. Cannot stop workspace owned by another user." >&2
+        exit 1
+    fi
+
+    echo "[*] Stopping application processes in workspace [${target_id}]..."
+    pkill -TERM -f "${target_id}" 2>/dev/null || true
+    
+    # Update status to STOPPED in metadata
+    if [[ -f "$meta_file" ]]; then
+        sed -i 's/"status": "RUNNING"/"status": "STOPPED"/' "$meta_file" 2>/dev/null || true
+    fi
+
+    log_audit "workspace_stopped"; log_audit "APPLICATION_STOPPED" "Application stopped in workspace [${target_id}]"
+    echo "[SUCCESS] Workspace ${target_id} stopped."
     exit 0
 }
 
@@ -159,6 +198,8 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -p|--profile)
             PROFILE_ARG="$2"; shift 2 ;;
+        -s|--stop)
+            STOP_ARG="$2"; shift 2 ;;
         -d|--destroy)
             DESTROY_ARG="$2"; shift 2 ;;
         --security-report)
@@ -179,6 +220,10 @@ while [[ $# -gt 0 ]]; do
             usage ;;
     esac
 done
+
+if [[ -n "$STOP_ARG" ]]; then
+    stop_workspace "$STOP_ARG"
+fi
 
 if [[ -n "$DESTROY_ARG" ]]; then
     destroy_workspace "$DESTROY_ARG"
@@ -358,24 +403,50 @@ fi
 # STEP 9, 10, 11, 12: LAUNCH, TRACK, MONITOR & CLEANUP
 # ==============================================================================
 update_state() { local s=$1; }; # CREATING RUNNING STOPPING DESTROYED ERROR
+START_TS=$(date +%s)
+NET_STATUS_STR="ALLOWED"
+if [[ "$NET_INTERNET" == "false" ]]; then
+    NET_STATUS_STR="BLOCKED"
+fi
+
 cat <<META > "$META_FILE"
 {
   "id": "${WS_ID}",
+  "workspaceId": "${WS_ID}",
   "profile": "${PROFILE_ARG}",
+  "profileId": "${PROFILE_ARG}",
   "name": "${PROFILE_NAME}",
   "executable": "${TARGET_EXEC}",
   "owner_uid": ${SESSION_UID},
   "pid": $$,
+  "processId": $$,
+  "runtimeId": "bwrap_${WS_ID}",
   "workspace_path": "${WS_DIR}",
   "network": "${NET_INTERNET}",
   "persistent": "${PERSISTENT_STORAGE}",
   "status": "RUNNING",
-  "created_at": $(date +%s)
+  "created_at": ${START_TS},
+  "started_at": ${START_TS},
+  "startedAt": ${START_TS},
+  "destroyedAt": null,
+  "access_info": {
+    "local_files": "BLOCKED",
+    "internet": "${NET_STATUS_STR}",
+    "camera": "BLOCKED",
+    "microphone": "BLOCKED",
+    "storage": "$([[ "$PERSISTENT_STORAGE" == "true" ]] && echo "PERSISTENT" || echo "TEMPORARY")"
+  },
+  "security_policy": {
+    "filesystem_isolation": "ENFORCED",
+    "network_isolation": "$([[ "$NET_INTERNET" == "false" ]] && echo "ENFORCED" || echo "PARTIAL")",
+    "device_isolation": "ENFORCED",
+    "persistence": "$([[ "$PERSISTENT_STORAGE" == "true" ]] && echo "ENABLED" || echo "DISABLED")"
+  }
 }
 META
 
 cleanup_on_stop() {
-    log_audit "workspace_stopped"; log_audit "APPLICATION_STOPPED" "Application '${TARGET_EXEC}' stopped in [${WS_ID}]"
+    log_audit "workspace_stopped"; log_audit "APPLICATION_STOPPED" "${PROFILE_NAME} stopped in [${WS_ID}]"
     
     # Terminate any remaining processes in this container
     pkill -9 -f "${WS_ID}" 2>/dev/null || true
@@ -387,14 +458,21 @@ cleanup_on_stop() {
     fi
     
     rm -f "$META_FILE" 2>/dev/null || true
-    log_audit "workspace_destroyed"; log_audit "SANDBOX_DESTROYED" "Sandbox memory scrubbed for [${WS_ID}]"
+    log_audit "workspace_destroyed"; log_audit "SANDBOX_DESTROYED" "Workspace destroyed for [${WS_ID}]"
     log_audit "CLEANUP_COMPLETED" "Lifecycle cleanup completed for [${WS_ID}]"
 }
 
 trap cleanup_on_stop EXIT INT TERM
 
 log_audit "SANDBOX_STARTED" "Sandbox initialized for [${WS_ID}]"
-log_audit "workspace_started"; log_audit "APPLICATION_STARTED" "Launching executable '${TARGET_EXEC}' inside [${WS_ID}]"
+log_audit "workspace_created" "${PROFILE_NAME} workspace created"
+log_audit "workspace_started"; log_audit "APPLICATION_STARTED" "${PROFILE_NAME} started"
+if [[ "$NET_INTERNET" == "true" ]]; then
+    log_audit "POLICY_ENFORCED" "Internet access enabled"
+else
+    log_audit "POLICY_ENFORCED" "Internet access blocked"
+fi
+log_audit "POLICY_ENFORCED" "Local file access blocked"
 
 # Handle optional timeout
 if [[ "$TIMEOUT_SECONDS" -gt 0 ]]; then

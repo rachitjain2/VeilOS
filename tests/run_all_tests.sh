@@ -21,6 +21,8 @@ TESTS=(
     "test_session_manager.sh"
     "test_lifecycle_cleanup.sh"
     "test_security_hardening.sh"
+    "test_profile_engine_15.sh"
+    "test_desktop_integration.sh"
 )
 
 PASSED=0
@@ -44,7 +46,7 @@ echo "TEST RESULTS: ${PASSED} PASSED, ${FAILED} FAILED."
 echo "=========================================================="
 
 if [[ $FAILED -eq 0 ]]; then
-    echo "[SUCCESS] All 11 VEILOS test suites verified!"
+    echo "[SUCCESS] All ${#TESTS[@]} VEILOS test suites verified!"
     exit 0
 else
     echo "[ERROR] Some tests failed."
