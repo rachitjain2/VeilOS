@@ -1,0 +1,129 @@
+#!/bin/bash
+# ==============================================================================
+# VEILOS Session Manager Backend Service (veil-session)
+# Responsibilities:
+# - create session
+# - track started applications
+# - track temporary sandboxes
+# - track temporary files
+# - stop applications
+# - destroy sandboxes
+# - prepare system shutdown
+# ==============================================================================
+
+set -euo pipefail
+
+SESSION_UID=$(id -u)
+RUNTIME_BASE="${XDG_RUNTIME_DIR:-/tmp}/veilos-${SESSION_UID}"
+ACTIVE_DIR="${RUNTIME_BASE}/active_workspaces"
+WORKSPACES_DIR="${RUNTIME_BASE}/workspaces"
+LOGS_DIR="${RUNTIME_BASE}/logs"
+SESSION_STATE="${RUNTIME_BASE}/session_state.json"
+VAULT_SERVICE="/usr/local/bin/veilos-vault-service"
+
+mkdir -p "$ACTIVE_DIR" "$WORKSPACES_DIR" "$LOGS_DIR"
+
+init_session() {
+    if [[ ! -f "$SESSION_STATE" ]]; then
+        local start_ts
+        start_ts=$(date +%s)
+        cat <<EOF > "$SESSION_STATE"
+{
+  "session_id": "session_${start_ts}_${RANDOM}",
+  "started_at": ${start_ts},
+  "status": "ACTIVE"
+}
+EOF
+        echo "[veil-session] Initialized temporary session at $(date -d @"$start_ts" '+%H:%M:%S')."
+    fi
+}
+
+get_status() {
+    init_session
+    local start_ts
+    start_ts=$(grep -o '"started_at": [0-9]*' "$SESSION_STATE" | awk '{print $2}')
+    local start_fmt
+    start_fmt=$(date -d @"$start_ts" '+%H:%M:%S' 2>/dev/null || date -r "$start_ts" '+%H:%M:%S' 2>/dev/null || echo "Active")
+
+    local active_apps=0
+    local active_sandboxes=0
+    if [[ -d "$ACTIVE_DIR" ]]; then
+        active_sandboxes=$(ls -1 "${ACTIVE_DIR}"/*.json 2>/dev/null | wc -l || echo 0)
+        active_apps="$active_sandboxes"
+    fi
+
+    local vault_status="LOCKED"
+    if [[ -x "$VAULT_SERVICE" ]]; then
+        vault_status=$("$VAULT_SERVICE" status)
+    elif mountpoint -q /media/veilos-vault 2>/dev/null; then
+        vault_status="UNLOCKED"
+    fi
+
+    cat <<EOF
+{
+  "started_at_str": "$start_fmt",
+  "started_at_ts": $start_ts,
+  "applications_running": $active_apps,
+  "temporary_environments": $active_sandboxes,
+  "persistent_vault": "$vault_status"
+}
+EOF
+}
+
+terminate_session() {
+    echo "=========================================================="
+    echo "        [veil-session] TERMINATING VEILOS SESSION        "
+    echo "=========================================================="
+
+    # 1. Stop all application environments & sandbox processes
+    echo "[1/5] Stopping all running applications and Bubblewrap sandboxes..."
+    pkill -9 -f "bwrap" 2>/dev/null || true
+    pkill -9 -f "veil-run" 2>/dev/null || true
+    pkill -9 -f "firefox-esr" 2>/dev/null || true
+    pkill -9 -f "mousepad" 2>/dev/null || true
+    pkill -9 -f "geany" 2>/dev/null || true
+    pkill -9 -f "xfce4-terminal" 2>/dev/null || true
+
+    # 2. Lock & unmount Persistent Vault if active
+    echo "[2/5] Locking encrypted Secure Vault..."
+    if [[ -x "$VAULT_SERVICE" ]]; then
+        "$VAULT_SERVICE" lock 2>/dev/null || true
+    elif mountpoint -q /media/veilos-vault 2>/dev/null; then
+        sudo umount /media/veilos-vault 2>/dev/null || true
+    fi
+
+    # 3. Shred and unmount temporary sandbox directories in RAM
+    echo "[3/5] Shredding and unmounting temporary workspace RAM files..."
+    if [[ -d "$WORKSPACES_DIR" ]]; then
+        find "$WORKSPACES_DIR" -type f -exec shred -u -z -n 1 {} + 2>/dev/null || true
+        rm -rf "$WORKSPACES_DIR"/* 2>/dev/null || true
+    fi
+    rm -f "${ACTIVE_DIR}"/*.json 2>/dev/null || true
+
+    # 4. Mark session terminated in local state
+    echo "[4/5] Closing active session record..."
+    cat <<EOF > "$SESSION_STATE"
+{
+  "status": "TERMINATED",
+  "terminated_at": $(date +%s)
+}
+EOF
+
+    # 5. Flush filesystem writes
+    sync
+
+    echo "[5/5] Session terminated successfully."
+    echo "=========================================================="
+}
+
+case "${1:-status}" in
+    init)
+        init_session ;;
+    status)
+        get_status ;;
+    terminate)
+        terminate_session ;;
+    *)
+        echo "Usage: $0 {init|status|terminate}" >&2
+        exit 1 ;;
+esac

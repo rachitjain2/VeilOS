@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=VEILOS Session Manager
+Comment=Manage and terminate temporary computing sessions
+Exec=/usr/local/bin/veilos-session-manager
+Icon=system-shutdown
+Terminal=false
+Categories=System;Security;

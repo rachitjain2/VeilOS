@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+"""
+VEILOS Session Manager Interface (veilos-session-manager)
+Displays CURRENT SESSION status, telemetry, and handles graceful session destruction.
+"""
+
+import os
+import sys
+import json
+import subprocess
+import gi
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gtk, Gdk, GLib
+
+CSS_PATH = "/usr/share/veilos/dashboard/css/style.css"
+SESSION_SERVICE = "/usr/local/bin/veil-session"
+
+class VeilosSessionWindow(Gtk.Window):
+    def __init__(self):
+        super().__init__(title="VEILOS Session Manager")
+        self.set_default_size(520, 560)
+        self.set_position(Gtk.WindowPosition.CENTER)
+        self.set_resizable(False)
+        self.get_style_context().add_class("veilos-window")
+
+        self.apply_css()
+
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        main_box.set_margin_top(28)
+        main_box.set_margin_bottom(28)
+        main_box.set_margin_start(36)
+        main_box.set_margin_end(36)
+        self.add(main_box)
+
+        # Header
+        t_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        t_box.set_halign(Gtk.Align.CENTER)
+        
+        lbl_head = Gtk.Label(label="CURRENT SESSION")
+        lbl_head.get_style_context().add_class("title-veil")
+        t_box.pack_start(lbl_head, False, False, 0)
+
+        lbl_sub = Gtk.Label(label="TEMPORARY LIVE ENVIRONMENT")
+        lbl_sub.get_style_context().add_class("subtitle-veil")
+        t_box.pack_start(lbl_sub, False, False, 0)
+        main_box.pack_start(t_box, False, False, 0)
+
+        # Telemetry Card
+        self.card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        self.card.get_style_context().add_class("status-container")
+
+        # Row 1: Started
+        self.val_started = self.create_metric_row("Started:", "Loading...")
+        # Row 2: Applications running
+        self.val_apps = self.create_metric_row("Applications running:", "0")
+        # Row 3: Temporary environments
+        self.val_envs = self.create_metric_row("Temporary environments:", "0")
+        # Row 4: Persistent vault
+        self.val_vault = self.create_metric_row("Persistent vault:", "LOCKED")
+
+        main_box.pack_start(self.card, False, False, 0)
+
+        # Notice
+        lbl_notice = Gtk.Label(
+            label="This session is temporary. All unsaved workspace data\n"
+                  "exists in volatile memory and will be destroyed on exit."
+        )
+        lbl_notice.get_style_context().add_class("btn-desc")
+        lbl_notice.set_justify(Gtk.Justification.CENTER)
+        main_box.pack_start(lbl_notice, False, False, 0)
+
+        # [ END SESSION ] Button
+        btn_end = Gtk.Button(label="[ END SESSION ]")
+        btn_end.get_style_context().add_class("danger-btn")
+        btn_end.connect("clicked", self.on_end_session_clicked)
+        main_box.pack_start(btn_end, False, False, 6)
+
+        # Close / Minimize
+        btn_close = Gtk.Button(label="Keep Session Running")
+        btn_close.get_style_context().add_class("fallback-btn")
+        btn_close.connect("clicked", lambda w: self.destroy())
+        main_box.pack_start(btn_close, False, False, 0)
+
+        self.refresh_telemetry()
+        GLib.timeout_add_seconds(2, self.refresh_telemetry)
+
+    def apply_css(self):
+        if os.path.exists(CSS_PATH):
+            provider = Gtk.CssProvider()
+            provider.load_from_path(CSS_PATH)
+            screen = Gdk.Screen.get_default()
+            Gtk.StyleContext.add_provider_for_screen(screen, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+    def create_metric_row(self, label_text, default_val):
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        lbl = Gtk.Label(label=label_text)
+        lbl.get_style_context().add_class("status-label")
+        lbl.set_halign(Gtk.Align.START)
+
+        val = Gtk.Label(label=default_val)
+        val.get_style_context().add_class("status-val")
+        val.set_halign(Gtk.Align.END)
+
+        row.pack_start(lbl, False, False, 0)
+        row.pack_end(val, False, False, 0)
+        self.card.pack_start(row, False, False, 0)
+        return val
+
+    def refresh_telemetry(self):
+        try:
+            out = subprocess.check_output([SESSION_SERVICE, "status"], text=True)
+            data = json.loads(out)
+            self.val_started.set_text(str(data.get("started_at_str", "Active")))
+            self.val_apps.set_text(str(data.get("applications_running", 0)))
+            self.val_envs.set_text(str(data.get("temporary_environments", 0)))
+
+            v_st = str(data.get("persistent_vault", "LOCKED"))
+            self.val_vault.set_text(v_st)
+            if v_st == "UNLOCKED":
+                self.val_vault.override_color(Gtk.StateFlags.NORMAL, Gdk.RGBA(0.2, 0.8, 0.4, 1.0))
+            else:
+                self.val_vault.override_color(Gtk.StateFlags.NORMAL, Gdk.RGBA(0.9, 0.6, 0.2, 1.0))
+        except Exception:
+            pass
+        return True
+
+    def on_end_session_clicked(self, widget):
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            flags=0,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.NONE,
+            text="End this temporary session?"
+        )
+        dialog.format_secondary_text(
+            "Temporary application environments will be terminated.\n"
+            "All volatile workspace data will be permanently scrubbed."
+        )
+        dialog.add_button("CANCEL", Gtk.ResponseType.CANCEL)
+        dialog.add_button("END SESSION", Gtk.ResponseType.OK)
+
+        response = dialog.run()
+        dialog.destroy()
+
+        if response == Gtk.ResponseType.OK:
+            self.execute_termination()
+
+    def execute_termination(self):
+        # 1. Run termination routine
+        subprocess.run([SESSION_SERVICE, "terminate"], check=False)
+
+        # 2. Show termination splash
+        term_dialog = Gtk.MessageDialog(
+            transient_for=self,
+            flags=0,
+            message_type=Gtk.MessageType.INFO,
+            buttons=Gtk.ButtonsType.OK,
+            text="SESSION TERMINATED"
+        )
+        term_dialog.format_secondary_text(
+            "All sandboxes halted. Temporary memory erased.\n"
+            "Proceeding with system logout..."
+        )
+        term_dialog.run()
+        term_dialog.destroy()
+
+        # 3. Initiate logout / poweroff
+        subprocess.Popen(["xfce4-session-logout", "--logout"])
+        self.destroy()
+
+def main():
+    win = VeilosSessionWindow()
+    win.connect("destroy", Gtk.main_quit)
+    win.show_all()
+    Gtk.main()
+
+if __name__ == "__main__":
+    main()
