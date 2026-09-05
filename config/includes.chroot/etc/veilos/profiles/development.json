@@ -1,19 +1,30 @@
 {
   "profile_id": "development",
-  "name": "DEVELOPMENT",
-  "description": "Isolated developer workspace for code editing and compilation with masked host files",
-  "executable": "/usr/bin/mousepad",
+  "name": "DEVELOPER WORKSPACE",
+  "badge": "DEV ENVIRONMENT",
+  "description": "Code inside a disposable environment.",
+  "toolchain_display": [
+    "Node.js ✓",
+    "Python ✓",
+    "Git ✓",
+    "npm ✓",
+    "pip ✓"
+  ],
+  "executable": "/usr/local/bin/veilos-dev-starter",
   "default_args": [],
   "filesystem_policy": {
     "root_access": "read-only",
     "user_home": "isolated-tmpfs",
     "block_host_files": true,
     "allow_system_fonts": true,
-    "allow_tmp": true
+    "allow_tmp": true,
+    "writable_npm_cache": true,
+    "writable_pip_cache": true
   },
   "network_policy": {
-    "enabled": false,
-    "dns": "none"
+    "enabled": true,
+    "configurable": true,
+    "dns": "system"
   },
   "storage_policy": {
     "persistent_storage": false,
@@ -25,8 +36,8 @@
     "microphone": false
   },
   "resource_policy": {
-    "memory_limit_mb": 1536,
-    "cpu_quota_percent": 90,
-    "max_pids": 512
+    "memory_limit_mb": 4096,
+    "cpu_quota_percent": 95,
+    "max_pids": 1024
   }
 }

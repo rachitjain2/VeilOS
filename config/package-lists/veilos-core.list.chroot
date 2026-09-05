@@ -77,4 +77,42 @@ nano
 mousepad
 htop
 lsof
-rsync
+rsync# =========================================================
+# VEILOS Developer Workspace Toolchain (Phase 4)
+# =========================================================
+
+# Core Developer Tooling & Compilers
+build-essential
+git
+curl
+wget
+ca-certificates
+pkg-config
+make
+gcc
+g++
+
+# Python Ecosystem
+python3
+python3-pip
+python3-venv
+python3-setuptools
+python3-dev
+
+# Node.js & npm Ecosystem
+nodejs
+npm
+
+# Editors & Developer UI
+geany
+geany-plugins
+mousepad
+
+# Terminal & Utilities
+xfce4-terminal
+tmux
+htop
+tree
+jq
+unzip
+zip

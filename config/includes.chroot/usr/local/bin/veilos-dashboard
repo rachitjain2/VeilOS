@@ -76,11 +76,9 @@ class VeilosDashboard(Gtk.Window):
         # [ DEVELOPER WORKSPACE ]
         btn_dev = self.create_action_card(
             title="DEVELOPER WORKSPACE",
-            description="Ephemeral code editor & isolated terminal with masked host FS.",
+            description="Code inside a disposable environment.",
             icon_name="utilities-terminal",
-            tags=[("Network: ", "Offline", "pill-blocked"),
-                  ("Local Files: ", "Blocked", "pill-blocked"),
-                  ("Persistence: ", "Off", "pill-off")],
+            tags=[("Stack: ", "Node.js ? | Python ? | Git ? | npm ? | pip ?", "pill-allowed")],
             on_click=self.launch_dev
         )
         actions_box.pack_start(btn_dev, False, False, 0)

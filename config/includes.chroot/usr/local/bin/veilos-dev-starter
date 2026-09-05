@@ -1,0 +1,49 @@
+#!/bin/bash
+# ==============================================================================
+# VEILOS Developer Workspace Starter
+# Initializes project scaffolding inside disposable RAM workspace
+# and spawns the developer editor & shell.
+# ==============================================================================
+
+set -euo pipefail
+
+WORKSPACE_HOME="${HOME:-/tmp}"
+PROJECT_DIR="${WORKSPACE_HOME}/project"
+
+mkdir -p "${PROJECT_DIR}"
+cd "${PROJECT_DIR}"
+
+# Initialize local npm and pip environment configs in tmpfs
+export NPM_CONFIG_PREFIX="${WORKSPACE_HOME}/.npm-global"
+export PATH="${NPM_CONFIG_PREFIX}/bin:${PATH}"
+mkdir -p "${NPM_CONFIG_PREFIX}" "${WORKSPACE_HOME}/.npm" "${WORKSPACE_HOME}/.cache/pip"
+
+# Create a sample quickstart README inside the ephemeral workspace
+if [[ ! -f "${PROJECT_DIR}/README.md" ]]; then
+    cat << 'EOF' > "${PROJECT_DIR}/README.md"
+# VEILOS Disposable Developer Workspace
+
+All files in this workspace exist strictly in volatile memory (tmpfs).
+
+### Installed Stack:
+- Node.js & npm (`npm install <package>` writes to local workspace only)
+- Python 3 & pip (`pip install <package>` writes to local venv/cache)
+- Git, build-essential (gcc, g++, make)
+- Code Editor & Ephemeral Terminal
+
+### Data Notice:
+If you need to persist your work:
+1. Push your code to a remote git repository (`git push`), OR
+2. Export your files to the VEILOS Secure Vault before exiting.
+EOF
+fi
+
+# Determine available editor (Geany or Mousepad)
+EDITOR_CMD="mousepad"
+if command -v geany >/dev/null 2>&1; then
+    EDITOR_CMD="geany"
+fi
+
+# Launch editor with README and open terminal tab in background
+(sleep 0.5 && xfce4-terminal --working-directory="${PROJECT_DIR}" --title="VEILOS Dev Terminal") &
+exec "${EDITOR_CMD}" "${PROJECT_DIR}/README.md"
