@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Exec=/usr/local/bin/veilos-dashboard
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=VEILOS Dashboard
+Comment=Private Computing Main Dashboard

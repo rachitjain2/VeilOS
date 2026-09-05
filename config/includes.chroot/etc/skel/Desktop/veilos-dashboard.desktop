@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=VEILOS Dashboard
+Comment=Private Computing Control Center
+Exec=/usr/local/bin/veilos-dashboard
+Icon=/usr/share/veilos/branding/veilos-logo.svg
+Terminal=false
+Categories=System;Security;Utility;

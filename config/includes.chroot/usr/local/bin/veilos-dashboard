@@ -1,0 +1,357 @@
+#!/usr/bin/env python3
+"""
+VEILOS Main Dashboard & Disposable Workspace Orchestrator
+Pure GTK3 + Python application providing a clean, cohesive privacy experience.
+"""
+
+import os
+import sys
+import subprocess
+import glob
+import json
+import gi
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gtk, Gdk, GLib, Pango
+
+CSS_PATH = "/usr/share/veilos/dashboard/css/style.css"
+LOGO_PATH = "/usr/share/veilos/branding/veilos-logo.svg"
+
+class VeilosDashboard(Gtk.Window):
+    def __init__(self):
+        super().__init__(title="VEILOS - Disposable Computing")
+        self.set_default_size(780, 820)
+        self.set_position(Gtk.WindowPosition.CENTER)
+        self.get_style_context().add_class("veilos-window")
+
+        # Load Custom CSS
+        self.apply_css()
+
+        # Root Container
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        main_box.set_margin_top(28)
+        main_box.set_margin_bottom(28)
+        main_box.set_margin_start(40)
+        main_box.set_margin_end(40)
+        self.add(main_box)
+
+        # 1. Header (Logo + Title)
+        header_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        header_box.set_halign(Gtk.Align.CENTER)
+
+        if os.path.exists(LOGO_PATH):
+            logo_img = Gtk.Image.new_from_file(LOGO_PATH)
+            logo_img.set_pixel_size(72)
+            header_box.pack_start(logo_img, False, False, 4)
+
+        title_lbl = Gtk.Label(label="VEILOS")
+        title_lbl.get_style_context().add_class("title-veil")
+        header_box.pack_start(title_lbl, False, False, 0)
+
+        sub_lbl = Gtk.Label(label="PRIVATE COMPUTING")
+        sub_lbl.get_style_context().add_class("subtitle-veil")
+        header_box.pack_start(sub_lbl, False, False, 0)
+
+        main_box.pack_start(header_box, False, False, 0)
+
+        # 2. Persistent Status Panel
+        self.status_box = self.build_status_panel()
+        main_box.pack_start(self.status_box, False, False, 0)
+
+        # 3. Action Grid (The 6 Core Operations)
+        actions_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        
+        # [ PRIVATE BROWSER ]
+        btn_browser = self.create_action_card(
+            title="PRIVATE BROWSER",
+            description="Isolated Firefox instance running in disposable RAM namespace",
+            icon_name="web-browser",
+            on_click=self.launch_browser
+        )
+        actions_box.pack_start(btn_browser, False, False, 0)
+
+        # [ DEVELOPER WORKSPACE ]
+        btn_dev = self.create_action_card(
+            title="DEVELOPER WORKSPACE",
+            description="Ephemeral code editor & isolated terminal with masked host FS",
+            icon_name="utilities-terminal",
+            on_click=self.launch_dev
+        )
+        actions_box.pack_start(btn_dev, False, False, 0)
+
+        # [ APP SANDBOX ]
+        btn_sandbox = self.create_action_card(
+            title="APP SANDBOX",
+            description="Launch arbitrary Linux binaries inside a custom Bubblewrap jail",
+            icon_name="system-run",
+            on_click=self.launch_app_sandbox
+        )
+        actions_box.pack_start(btn_sandbox, False, False, 0)
+
+        # [ SECURE VAULT ]
+        btn_vault = self.create_action_card(
+            title="SECURE VAULT",
+            description="Manage encrypted LUKS container for explicit data persistence",
+            icon_name="security-high",
+            on_click=self.launch_vault
+        )
+        actions_box.pack_start(btn_vault, False, False, 0)
+
+        # [ PRIVACY CENTER ]
+        btn_privacy = self.create_action_card(
+            title="PRIVACY CENTER",
+            description="Inspect running workspaces, network policies, or destroy memory",
+            icon_name="dialog-information",
+            on_click=self.launch_privacy_center
+        )
+        actions_box.pack_start(btn_privacy, False, False, 0)
+
+        # [ END SESSION ]
+        btn_end = self.create_danger_card(
+            title="END SESSION",
+            description="Scrub all active disposable environments and securely log out",
+            on_click=self.end_session
+        )
+        actions_box.pack_start(btn_end, False, False, 0)
+
+        main_box.pack_start(actions_box, True, True, 0)
+
+        # 4. Fallback Desktop Navigation Bar
+        fallback_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        fallback_box.set_halign(Gtk.Align.CENTER)
+        fallback_box.set_margin_top(8)
+
+        lbl_hint = Gtk.Label(label="Development Fallback:")
+        lbl_hint.get_style_context().add_class("status-label")
+        fallback_box.pack_start(lbl_hint, False, False, 0)
+
+        btn_xfce = Gtk.Button(label="Show Standard Desktop")
+        btn_xfce.get_style_context().add_class("fallback-btn")
+        btn_xfce.connect("clicked", lambda w: self.iconify())
+        fallback_box.pack_start(btn_xfce, False, False, 0)
+
+        btn_term = Gtk.Button(label="Quick Host Terminal")
+        btn_term.get_style_context().add_class("fallback-btn")
+        btn_term.connect("clicked", lambda w: subprocess.Popen(["xfce4-terminal"]))
+        fallback_box.pack_start(btn_term, False, False, 0)
+
+        main_box.pack_start(fallback_box, False, False, 0)
+
+        # Auto-refresh status indicators every 2 seconds
+        GLib.timeout_add_seconds(2, self.update_status)
+        self.update_status()
+
+    def apply_css(self):
+        css_provider = Gtk.CssProvider()
+        if os.path.exists(CSS_PATH):
+            css_provider.load_from_path(CSS_PATH)
+        else:
+            # Fallback embedded css if not installed
+            raw = b"""
+            window.veilos-window { background: #0f172a; color: #fff; }
+            .title-veil { font-size: 32px; font-weight: bold; color: #38bdf8; }
+            .subtitle-veil { font-size: 12px; color: #94a3b8; }
+            button.action-btn { background: #1e293b; color: #fff; border-radius: 8px; padding: 12px; }
+            """
+            css_provider.load_from_data(raw)
+
+        screen = Gdk.Screen.get_default()
+        style_context = Gtk.StyleContext()
+        style_context.add_provider_for_screen(screen, css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+    def build_status_panel(self):
+        panel = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
+        panel.get_style_context().add_class("status-container")
+        panel.set_homogeneous(True)
+
+        # 1. SESSION
+        b1 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        l1 = Gtk.Label(label="SESSION")
+        l1.get_style_context().add_class("status-label")
+        self.val_session = Gtk.Label(label="● TEMPORARY")
+        self.val_session.get_style_context().add_class("status-val")
+        self.val_session.get_style_context().add_class("dot-blue")
+        b1.pack_start(l1, False, False, 0)
+        b1.pack_start(self.val_session, False, False, 0)
+        panel.pack_start(b1, True, True, 0)
+
+        # 2. NETWORK
+        b2 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        l2 = Gtk.Label(label="NETWORK")
+        l2.get_style_context().add_class("status-label")
+        self.val_network = Gtk.Label(label="● PROTECTED")
+        self.val_network.get_style_context().add_class("status-val")
+        self.val_network.get_style_context().add_class("dot-green")
+        b2.pack_start(l2, False, False, 0)
+        b2.pack_start(self.val_network, False, False, 0)
+        panel.pack_start(b2, True, True, 0)
+
+        # 3. PERSISTENCE
+        b3 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        l3 = Gtk.Label(label="PERSISTENCE")
+        l3.get_style_context().add_class("status-label")
+        self.val_persist = Gtk.Label(label="● OFF (VOLATILE)")
+        self.val_persist.get_style_context().add_class("status-val")
+        self.val_persist.get_style_context().add_class("dot-amber")
+        b3.pack_start(l3, False, False, 0)
+        b3.pack_start(self.val_persist, False, False, 0)
+        panel.pack_start(b3, True, True, 0)
+
+        # 4. PRIVACY
+        b4 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        l4 = Gtk.Label(label="PRIVACY")
+        l4.get_style_context().add_class("status-label")
+        self.val_privacy = Gtk.Label(label="ACTIVE (0 WS)")
+        self.val_privacy.get_style_context().add_class("status-val")
+        self.val_privacy.get_style_context().add_class("dot-green")
+        b4.pack_start(l4, False, False, 0)
+        b4.pack_start(self.val_privacy, False, False, 0)
+        panel.pack_start(b4, True, True, 0)
+
+        return panel
+
+    def update_status(self):
+        # Count active workspaces
+        uid = os.getuid()
+        meta_dir = f"/run/user/{uid}/veilos/active_workspaces"
+        active_count = 0
+        if os.path.exists(meta_dir):
+            active_count = len(glob.glob(f"{meta_dir}/*.json"))
+
+        self.val_privacy.set_text(f"ACTIVE ({active_count} WS)")
+
+        # Check if persistent vault is mounted
+        if os.path.ismount("/media/veilos-vault"):
+            self.val_persist.set_text("● ON (VAULT)")
+            self.val_persist.get_style_context().remove_class("dot-amber")
+            self.val_persist.get_style_context().add_class("dot-blue")
+        else:
+            self.val_persist.set_text("● OFF (VOLATILE)")
+            self.val_persist.get_style_context().remove_class("dot-blue")
+            self.val_persist.get_style_context().add_class("dot-amber")
+
+        return True
+
+    def create_action_card(self, title, description, icon_name, on_click):
+        btn = Gtk.Button()
+        btn.get_style_context().add_class("action-btn")
+        btn.connect("clicked", lambda w: on_click())
+
+        hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        hbox.set_margin_start(6)
+        hbox.set_margin_end(6)
+
+        icon = Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.DND)
+        hbox.pack_start(icon, False, False, 0)
+
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        vbox.set_halign(Gtk.Align.START)
+        
+        lbl_title = Gtk.Label(label=title)
+        lbl_title.get_style_context().add_class("btn-title")
+        lbl_title.set_halign(Gtk.Align.START)
+        vbox.pack_start(lbl_title, False, False, 0)
+
+        lbl_desc = Gtk.Label(label=description)
+        lbl_desc.get_style_context().add_class("btn-desc")
+        lbl_desc.set_halign(Gtk.Align.START)
+        vbox.pack_start(lbl_desc, False, False, 0)
+
+        hbox.pack_start(vbox, True, True, 0)
+
+        arrow = Gtk.Label(label="➔")
+        arrow.get_style_context().add_class("btn-title")
+        hbox.pack_end(arrow, False, False, 0)
+
+        btn.add(hbox)
+        return btn
+
+    def create_danger_card(self, title, description, on_click):
+        btn = Gtk.Button()
+        btn.get_style_context().add_class("danger-btn")
+        btn.connect("clicked", lambda w: on_click())
+
+        hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        hbox.set_margin_start(6)
+        hbox.set_margin_end(6)
+
+        icon = Gtk.Image.new_from_icon_name("system-shutdown", Gtk.IconSize.DND)
+        hbox.pack_start(icon, False, False, 0)
+
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        vbox.set_halign(Gtk.Align.START)
+        
+        lbl_title = Gtk.Label(label=title)
+        lbl_title.get_style_context().add_class("danger-title")
+        lbl_title.set_halign(Gtk.Align.START)
+        vbox.pack_start(lbl_title, False, False, 0)
+
+        lbl_desc = Gtk.Label(label=description)
+        lbl_desc.get_style_context().add_class("btn-desc")
+        lbl_desc.set_halign(Gtk.Align.START)
+        vbox.pack_start(lbl_desc, False, False, 0)
+
+        hbox.pack_start(vbox, True, True, 0)
+        btn.add(hbox)
+        return btn
+
+    # Handlers
+    def launch_browser(self):
+        subprocess.Popen([
+            "/usr/local/bin/veilos-sandbox",
+            "-n", "Private Browser",
+            "-p", "browser",
+            "--allow-audio",
+            "--",
+            "/usr/bin/firefox-esr",
+            "--private-window",
+            "about:blank"
+        ])
+
+    def launch_dev(self):
+        # Launch editor and terminal side by side in disposable developer workspace
+        subprocess.Popen([
+            "/usr/local/bin/veilos-sandbox",
+            "-n", "Developer Workspace",
+            "-p", "developer",
+            "--",
+            "/usr/bin/mousepad"
+        ])
+
+    def launch_app_sandbox(self):
+        subprocess.Popen(["/usr/local/bin/veilos-launcher"])
+
+    def launch_vault(self):
+        subprocess.Popen(["/usr/local/bin/veilos-vault-gui"])
+
+    def launch_privacy_center(self):
+        subprocess.Popen(["/usr/local/bin/veilos-privacy-center"])
+
+    def end_session(self):
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            flags=0,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.OK_CANCEL,
+            text="End VEILOS Session?"
+        )
+        dialog.format_secondary_text(
+            "This will immediately destroy all running disposable workspaces, "
+            "scrub temporary RAM state, and log out."
+        )
+        res = dialog.run()
+        dialog.destroy()
+        if res == Gtk.ResponseType.OK:
+            subprocess.run(["pkill", "-f", "veilos-sandbox"], check=False)
+            uid = os.getuid()
+            subprocess.run(f"rm -rf /run/user/{uid}/veilos", shell=True, check=False)
+            subprocess.Popen(["xfce4-session-logout", "--logout"])
+
+def main():
+    app = VeilosDashboard()
+    app.connect("destroy", Gtk.main_quit)
+    app.show_all()
+    Gtk.main()
+
+if __name__ == "__main__":
+    main()
