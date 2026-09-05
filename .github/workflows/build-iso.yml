@@ -1,0 +1,46 @@
+name: Build VEILOS Live ISO
+
+on:
+  push:
+    branches: [ veilos-main, main ]
+  workflow_dispatch:
+
+jobs:
+  build-iso:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout VEILOS Repository
+        uses: actions/checkout@v4
+
+      - name: Install ISO Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            live-build \
+            debootstrap \
+            xorriso \
+            squashfs-tools \
+            dosfstools \
+            isolinux \
+            syslinux-common \
+            grub-pc-bin \
+            grub-efi-amd64-bin \
+            mtools \
+            rsync
+
+      - name: Run VEILOS ISO Builder
+        run: |
+          sudo chmod +x build/*.sh
+          sudo chmod +x config/auto/*
+          sudo chmod +x config/hooks/live/*
+          sudo chmod +x config/includes.chroot/usr/local/bin/*
+          sudo ./build/build.sh
+
+      - name: Upload VEILOS ISO Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: veilos-live-amd64
+          path: |
+            output/veilos-live-amd64.iso
+            output/veilos-live-amd64.iso.sha256
+          retention-days: 14

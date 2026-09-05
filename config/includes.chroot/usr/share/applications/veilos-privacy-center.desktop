@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=VEILOS Privacy Center
+Comment=Monitor and instantly destroy active application workspaces
+Exec=/usr/local/bin/veilos-privacy-center
+Icon=/usr/share/veilos/branding/veilos-logo.svg
+Terminal=false
+Categories=System;Security;Settings;

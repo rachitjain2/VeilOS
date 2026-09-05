@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=VEILOS Launcher
+Comment=Launch applications inside disposable isolated environments
+Exec=/usr/local/bin/veilos-launcher
+Icon=/usr/share/veilos/branding/veilos-logo.svg
+Terminal=false
+Categories=System;Utility;Security;

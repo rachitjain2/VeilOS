@@ -1,0 +1,67 @@
+#!/bin/bash
+# ==============================================================================
+# VEILOS Privacy Center & Workspace Manager (veilos-privacy-center)
+# Displays active disposable environments, RAM usage, and instant Nuke option.
+# ==============================================================================
+
+set -euo pipefail
+
+SESSION_UID=$(id -u)
+ACTIVE_DIR="/run/user/${SESSION_UID}/veilos/active_workspaces"
+
+mkdir -p "$ACTIVE_DIR"
+
+render_ui() {
+    ITEMS=()
+    for f in "$ACTIVE_DIR"/*.json; do
+        if [[ -f "$f" ]]; then
+            ID=$(grep -o '"id": "[^"]*' "$f" | cut -d'"' -f4)
+            NAME=$(grep -o '"name": "[^"]*' "$f" | cut -d'"' -f4)
+            NET=$(grep -o '"network": "[^"]*' "$f" | cut -d'"' -f4)
+            ITEMS+=("$ID" "$NAME" "Network: $NET" "Active")
+        fi
+    done
+
+    if [[ ${#ITEMS[@]} -eq 0 ]]; then
+        yad --title="VEILOS Privacy Center" \
+            --window-icon="/usr/share/veilos/branding/veilos-logo.svg" \
+            --width=450 --height=220 --center \
+            --text="<big><b>VEILOS Privacy Center</b></big>\n\nNo disposable workspaces are currently active.\nAll system state is idle and running from volatile memory." \
+            --button="Launch Workspace:10" \
+            --button="Close:0"
+        ACTION=$?
+        if [[ $ACTION -eq 10 ]]; then
+            veilos-launcher
+        fi
+    else
+        SELECTED=$(yad --title="VEILOS Privacy Center" \
+            --window-icon="/usr/share/veilos/branding/veilos-logo.svg" \
+            --width=600 --height=350 --center \
+            --text="<big><b>Active Disposable Workspaces</b></big>\nSelect a workspace to inspect or instantly wipe." \
+            --list --column="ID" --column="Application" --column="Policy" --column="Status" \
+            "${ITEMS[@]}" \
+            --button="Destroy Selected Workspace:2" \
+            --button="NUKE ALL WORKSPACES:3" \
+            --button="Close:0")
+        
+        RET=$?
+        if [[ $RET -eq 2 ]]; then
+            WS_TO_KILL=$(echo "$SELECTED" | awk -F'|' '{print $1}')
+            if [[ -n "$WS_TO_KILL" ]]; then
+                echo "[VEILOS] Killing workspace $WS_TO_KILL"
+                pkill -f "$WS_TO_KILL" 2>/dev/null || true
+                rm -rf "/run/user/${SESSION_UID}/veilos/workspaces/${WS_TO_KILL}" 2>/dev/null || true
+                rm -f "${ACTIVE_DIR}/${WS_TO_KILL}.json" 2>/dev/null || true
+                notify-send "VEILOS Privacy Center" "Workspace $WS_TO_KILL wiped." -i /usr/share/veilos/branding/veilos-logo.svg
+            fi
+        elif [[ $RET -eq 3 ]]; then
+            echo "[VEILOS] Nuking all active workspaces..."
+            pkill -f "veilos-sandbox" 2>/dev/null || true
+            rm -rf "/run/user/${SESSION_UID}/veilos/workspaces"/* 2>/dev/null || true
+            rm -f "${ACTIVE_DIR}"/*.json 2>/dev/null || true
+            notify-send "VEILOS Privacy Center" "All disposable workspaces Nuked!" -i /usr/share/veilos/branding/veilos-logo.svg
+        fi
+    fi
+}
+
+render_ui

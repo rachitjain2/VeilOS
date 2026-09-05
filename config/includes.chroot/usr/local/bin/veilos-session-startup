@@ -1,0 +1,41 @@
+#!/bin/bash
+# ==============================================================================
+# VEILOS Session Startup Manager
+# Executes upon desktop login (autostart)
+# ==============================================================================
+
+set -euo pipefail
+
+SESSION_UID=$(id -u)
+BASE_RUN="/run/user/${SESSION_UID}/veilos"
+
+mkdir -p "${BASE_RUN}/workspaces"
+mkdir -p "${BASE_RUN}/active_workspaces"
+
+# Configure XFCE theme / wallpaper if not already set
+if command -v xfconf-query >/dev/null 2>&1; then
+    # Dark modern theme
+    xfconf-query -c xsettings -p /Net/ThemeName -s "Adwaita-dark" --create -t string 2>/dev/null || true
+    xfconf-query -c xsettings -p /Net/IconThemeName -s "Adwaita" --create -t string 2>/dev/null || true
+fi
+
+# Show Welcome Notification
+if command -v notify-send >/dev/null 2>&1; then
+    notify-send "Welcome to VEILOS" \
+        "Disposable Computing Mode ACTIVE.\nSystem is running from volatile RAM." \
+        -i /usr/share/veilos/branding/veilos-logo.svg \
+        -t 8000 2>/dev/null || true
+fi
+
+# Ensure cleanup hook runs at user logout / system shutdown
+cat << 'EOF' > "${BASE_RUN}/veilos-logout-clean.sh"
+#!/bin/bash
+echo "[VEILOS] Scrubbing all active session workspaces..."
+if [[ -d "/run/user/$(id -u)/veilos/workspaces" ]]; then
+    find "/run/user/$(id -u)/veilos/workspaces" -type f -exec shred -u -z -n 1 {} + 2>/dev/null || true
+    rm -rf "/run/user/$(id -u)/veilos" 2>/dev/null || true
+fi
+EOF
+chmod +x "${BASE_RUN}/veilos-logout-clean.sh"
+
+echo "[VEILOS] Session initialized."

@@ -1,0 +1,7 @@
+#!/bin/bash
+set -e
+echo "=== [VEILOS Live Hook] Setting permissions ==="
+chmod 755 /usr/local/bin/veilos-* || true
+chmod 440 /etc/sudoers.d/veilos || true
+chmod 755 /etc/skel/Desktop/*.desktop || true
+echo "=== [VEILOS Live Hook] Completed ==="

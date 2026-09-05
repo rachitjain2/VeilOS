@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=VEILOS Secure Vault
+Comment=Encrypted persistent storage manager
+Exec=/usr/local/bin/veilos-vault-gui
+Icon=security-high
+Terminal=false
+Categories=System;Security;Utility;

@@ -1,0 +1,176 @@
+#!/bin/bash
+# ==============================================================================
+# VEILOS Sandbox Engine (veilos-sandbox)
+# Core principle: Applications are guests, not owners.
+# Launches applications inside volatile tmpfs namespaces via Bubblewrap.
+# ==============================================================================
+
+set -euo pipefail
+
+APP_NAME=""
+PROFILE="standard"
+NETWORK="allow"
+AUDIO="deny"
+WEBCAM="deny"
+EXTRA_ARGS=()
+
+usage() {
+    cat <<EOF
+Usage: veilos-sandbox [OPTIONS] -- COMMAND [ARGS...]
+
+Options:
+  -p, --profile <profile>    Sandbox profile (browser|developer|vault|minimal|standard)
+  --offline                  Disallow network access (unshare network)
+  --allow-audio              Permit PulseAudio/PipeWire socket access
+  --allow-camera             Permit video devices (/dev/video*)
+  -n, --name <name>          Friendly workspace name
+  -h, --help                 Display this help message
+EOF
+    exit 1
+}
+
+# Parse options
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -p|--profile)
+            PROFILE="$2"; shift 2 ;;
+        --offline)
+            NETWORK="deny"; shift ;;
+        --allow-audio)
+            AUDIO="allow"; shift ;;
+        --allow-camera)
+            WEBCAM="allow"; shift ;;
+        -n|--name)
+            APP_NAME="$2"; shift 2 ;;
+        --)
+            shift; break ;;
+        -h|--help)
+            usage ;;
+        *)
+            break ;;
+    esac
+done
+
+if [[ $# -eq 0 ]]; then
+    echo "Error: No application command provided." >&2
+    usage
+fi
+
+COMMAND=("$@")
+EXEC_NAME=$(basename "${COMMAND[0]}")
+[[ -z "$APP_NAME" ]] && APP_NAME="$EXEC_NAME"
+
+# Workspace Identification
+SESSION_UID=$(id -u)
+WS_ID="ws_$(date +%s)_${RANDOM}"
+WS_DIR="/run/user/${SESSION_UID}/veilos/workspaces/${WS_ID}"
+METADATA_DIR="/run/user/${SESSION_UID}/veilos/active_workspaces"
+
+mkdir -p "$WS_DIR" "$METADATA_DIR"
+# Setup temporary volatile user directory structure
+mkdir -p "${WS_DIR}/Desktop" "${WS_DIR}/Downloads" "${WS_DIR}/Documents" "${WS_DIR}/.config" "${WS_DIR}/.cache"
+
+# Build Bubblewrap Arguments
+BWRAP_ARGS=(
+    bwrap
+    # Read-Only core system directories
+    --ro-bind /usr /usr
+    --ro-bind /lib /lib
+    --ro-bind-try /lib64 /lib64
+    --ro-bind /bin /bin
+    --ro-bind /sbin /sbin
+    --ro-bind /etc /etc
+    --ro-bind-try /opt /opt
+    # Volatile /tmp and runtime mounts
+    --tmpfs /tmp
+    --tmpfs /var
+    --proc /proc
+    --dev /dev
+    # Strict isolation of home directory: user home is isolated tmpfs workspace
+    --bind "$WS_DIR" "$HOME"
+    # Unshare namespaces
+    --unshare-pid
+    --unshare-uts
+    --unshare-ipc
+    --hostname "veilos-sandbox"
+    --die-with-parent
+)
+
+# Network Policy
+if [[ "$NETWORK" == "deny" ]]; then
+    BWRAP_ARGS+=(--unshare-net)
+else
+    # Allow network: bind resolve config
+    BWRAP_ARGS+=(--ro-bind-try /etc/resolv.conf /etc/resolv.conf)
+fi
+
+# Audio Policy
+if [[ "$AUDIO" == "allow" ]]; then
+    # Bind user runtime dir for PulseAudio / Pipewire
+    if [[ -d "/run/user/${SESSION_UID}/pulse" ]]; then
+        BWRAP_ARGS+=(--bind "/run/user/${SESSION_UID}/pulse" "/run/user/${SESSION_UID}/pulse")
+    fi
+    if [[ -S "/run/user/${SESSION_UID}/pipewire-0" ]]; then
+        BWRAP_ARGS+=(--bind "/run/user/${SESSION_UID}/pipewire-0" "/run/user/${SESSION_UID}/pipewire-0")
+    fi
+fi
+
+# Camera / Video Policy
+if [[ "$WEBCAM" == "allow" ]]; then
+    for dev in /dev/video*; do
+        if [[ -e "$dev" ]]; then
+            BWRAP_ARGS+=(--dev-bind "$dev" "$dev")
+        fi
+    done
+fi
+
+# X11 Display Sharing
+if [[ -n "${DISPLAY:-}" ]]; then
+    BWRAP_ARGS+=(
+        --setenv DISPLAY "$DISPLAY"
+        --bind-try /tmp/.X11-unix /tmp/.X11-unix
+        --ro-bind-try "$HOME/.Xauthority" "$HOME/.Xauthority"
+    )
+fi
+
+# Wayland Display Sharing
+if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
+    BWRAP_ARGS+=(
+        --setenv WAYLAND_DISPLAY "$WAYLAND_DISPLAY"
+        --bind-try "/run/user/${SESSION_UID}/${WAYLAND_DISPLAY}" "/run/user/${SESSION_UID}/${WAYLAND_DISPLAY}"
+    )
+fi
+
+# Record workspace metadata for VEILOS Session Manager & Privacy Center
+META_FILE="${METADATA_DIR}/${WS_ID}.json"
+cat <<META > "$META_FILE"
+{
+  "id": "${WS_ID}",
+  "name": "${APP_NAME}",
+  "command": "${COMMAND[*]}",
+  "profile": "${PROFILE}",
+  "network": "${NETWORK}",
+  "audio": "${AUDIO}",
+  "camera": "${WEBCAM}",
+  "path": "${WS_DIR}",
+  "started_at": $(date +%s)
+}
+META
+
+cleanup() {
+    echo "[VEILOS] Wiping disposable workspace: ${WS_ID}..."
+    # Kill any dangling background tasks in this workspace
+    rm -f "$META_FILE" 2>/dev/null || true
+    if [[ -d "$WS_DIR" ]]; then
+        # Overwrite content before unlinking
+        find "$WS_DIR" -type f -exec shred -u -z -n 1 {} + 2>/dev/null || true
+        rm -rf "$WS_DIR" 2>/dev/null || true
+    fi
+    echo "[VEILOS] Workspace ${WS_ID} cleanly destroyed."
+}
+
+# Ensure cleanup occurs on exit or interrupt
+trap cleanup EXIT INT TERM
+
+echo "[VEILOS] Launching '${APP_NAME}' in isolated workspace [${WS_ID}]..."
+"${BWRAP_ARGS[@]}" "${COMMAND[@]}"

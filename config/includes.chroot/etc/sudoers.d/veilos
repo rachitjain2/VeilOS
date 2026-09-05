@@ -1,0 +1,1 @@
+veilos ALL=(ALL) NOPASSWD: /usr/sbin/cryptsetup, /usr/bin/mount, /usr/bin/umount, /usr/bin/mkdir, /usr/bin/chown

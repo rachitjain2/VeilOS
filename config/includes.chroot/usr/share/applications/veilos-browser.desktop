@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=VEILOS Private Browser
+Comment=Isolated Web Browser in disposable memory
+Exec=/usr/local/bin/veilos-sandbox -n "Private Browser" -p browser --allow-audio -- /usr/bin/firefox-esr --private-window "about:blank"
+Icon=firefox-esr
+Terminal=false
+Categories=Network;WebBrowser;Security;

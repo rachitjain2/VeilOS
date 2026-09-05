@@ -1,0 +1,57 @@
+#!/bin/bash
+# ==============================================================================
+# VEILOS Secure Vault GUI (veilos-vault-gui)
+# Creates and unlocks LUKS encrypted persistent containers
+# ==============================================================================
+
+set -euo pipefail
+
+MOUNT_POINT="/media/veilos-vault"
+
+ACTION=$(yad --title="VEILOS Secure Vault" \
+    --window-icon="/usr/share/veilos/branding/veilos-logo.svg" \
+    --width=450 --height=250 --center \
+    --text="<big><b>VEILOS Secure Vault</b></big>\n\nManage encrypted persistent storage (dm-crypt/LUKS).\nDisposable sandboxes cannot see this vault unless explicitly shared." \
+    --button="Unlock Existing Vault:1" \
+    --button="Create New Vault File:2" \
+    --button="Lock & Unmount:3" \
+    --button="Cancel:0")
+
+CHOICE=$?
+
+if [[ $CHOICE -eq 1 ]]; then
+    DEV_PATH=$(yad --file --title="Select LUKS Encrypted Vault Container / Device")
+    if [[ -n "$DEV_PATH" ]]; then
+        PASS=$(yad --entry --title="Unlock Vault" --text="Enter Vault Passphrase:" --hide-text)
+        if [[ -n "$PASS" ]]; then
+            sudo mkdir -p "$MOUNT_POINT"
+            echo -n "$PASS" | sudo cryptsetup luksOpen "$DEV_PATH" veilos_vault_active -
+            sudo mount /dev/mapper/veilos_vault_active "$MOUNT_POINT"
+            sudo chown -R veilos:veilos "$MOUNT_POINT"
+            notify-send "VEILOS Vault" "Encrypted Vault successfully mounted to $MOUNT_POINT"
+            thunar "$MOUNT_POINT" &
+        fi
+    fi
+elif [[ $CHOICE -eq 2 ]]; then
+    SAVE_PATH=$(yad --file --save --title="Choose Location for New Vault Image" --filename="veilos-vault.img")
+    if [[ -n "$SAVE_PATH" ]]; then
+        SIZE_MB=$(yad --entry --title="Vault Size" --text="Enter size in Megabytes (e.g. 512):" --entry-text="512")
+        PASS=$(yad --entry --title="Set Vault Passphrase" --text="Enter strong passphrase:" --hide-text)
+        if [[ -n "$SIZE_MB" && -n "$PASS" ]]; then
+            dd if=/dev/urandom of="$SAVE_PATH" bs=1M count="$SIZE_MB" status=progress
+            echo -n "$PASS" | sudo cryptsetup luksFormat --type luks2 "$SAVE_PATH" -
+            echo -n "$PASS" | sudo cryptsetup luksOpen "$SAVE_PATH" veilos_vault_temp -
+            sudo mkfs.ext4 -L "VEILOS_VAULT" /dev/mapper/veilos_vault_temp
+            sudo cryptsetup luksClose veilos_vault_temp
+            notify-send "VEILOS Vault" "New encrypted vault created: $SAVE_PATH"
+        fi
+    fi
+elif [[ $CHOICE -eq 3 ]]; then
+    if mountpoint -q "$MOUNT_POINT"; then
+        sudo umount "$MOUNT_POINT" || true
+    fi
+    if [[ -e /dev/mapper/veilos_vault_active ]]; then
+        sudo cryptsetup luksClose veilos_vault_active || true
+    fi
+    notify-send "VEILOS Vault" "Vault safely locked and unmounted."
+fi

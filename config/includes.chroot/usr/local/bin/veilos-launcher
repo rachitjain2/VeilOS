@@ -1,0 +1,81 @@
+#!/bin/bash
+# ==============================================================================
+# VEILOS Application Launcher (veilos-launcher)
+# Interactive GUI / CLI menu to start apps inside isolated workspaces
+# ==============================================================================
+
+set -euo pipefail
+
+launch_browser() {
+    notify-send "VEILOS" "Launching Private Disposable Browser..." -i /usr/share/veilos/branding/veilos-logo.svg 2>/dev/null || true
+    veilos-sandbox -n "Private Browser" -p browser --allow-audio -- /usr/bin/firefox-esr --private-window "about:blank"
+}
+
+launch_terminal() {
+    notify-send "VEILOS" "Launching Ephemeral Terminal..." -i utilities-terminal 2>/dev/null || true
+    veilos-sandbox -n "Isolated Terminal" -p developer -- /usr/bin/xfce4-terminal
+}
+
+launch_dev() {
+    notify-send "VEILOS" "Launching Developer Workspace..." -i /usr/share/veilos/branding/veilos-logo.svg 2>/dev/null || true
+    veilos-sandbox -n "Dev Workspace" -p developer -- /usr/bin/mousepad
+}
+
+launch_vault() {
+    veilos-vault-gui
+}
+
+launch_privacy_center() {
+    veilos-privacy-center
+}
+
+# If arguments passed, execute directly inside sandbox
+if [[ $# -gt 0 ]]; then
+    exec veilos-sandbox -n "$1" -- "$@"
+fi
+
+# GUI Menu via YAD / Zenity
+if command -v yad >/dev/null 2>&1; then
+    CHOICE=$(yad --title="VEILOS - Disposable Workspace Launcher" \
+        --window-icon="/usr/share/veilos/branding/veilos-logo.svg" \
+        --width=520 --height=340 --center \
+        --text="Select an isolated application environment to start.\nAll state exists solely in volatile RAM until destroyed." \
+        --list --radiolist --column="Select" --column="App" --column="Description" \
+        TRUE "Private Browser" "Firefox ESR in temporary namespace profile" \
+        FALSE "Isolated Terminal" "Terminal session with masked host filesystem" \
+        FALSE "Developer Editor" "Code and text editor in isolated workspace" \
+        FALSE "Secure Vault" "Mount/Format encrypted LUKS persistent volume" \
+        FALSE "Privacy Center" "Inspect and destroy active sandboxes" \
+        --button="Launch Workspace:0" --button="Cancel:1")
+
+    EXIT_CODE=$?
+    if [[ $EXIT_CODE -ne 0 ]]; then
+        exit 0
+    fi
+
+    SELECTED=$(echo "$CHOICE" | awk -F'|' '{print $2}')
+    case "$SELECTED" in
+        "Private Browser") launch_browser ;;
+        "Isolated Terminal") launch_terminal ;;
+        "Developer Editor") launch_dev ;;
+        "Secure Vault") launch_vault ;;
+        "Privacy Center") launch_privacy_center ;;
+    esac
+else
+    # Fallback Zenity
+    CHOICE=$(zenity --list --title="VEILOS Launcher" \
+        --text="Choose an application to launch in a disposable sandbox:" \
+        --column="ID" --column="Application" \
+        1 "Private Browser" \
+        2 "Isolated Terminal" \
+        3 "Developer Editor" \
+        4 "Secure Vault" \
+        5 "Privacy Center")
+    case "$CHOICE" in
+        1) launch_browser ;;
+        2) launch_terminal ;;
+        3) launch_dev ;;
+        4) launch_vault ;;
+        5) launch_privacy_center ;;
+    esac
+fi
