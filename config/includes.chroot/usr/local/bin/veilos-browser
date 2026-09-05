@@ -1,0 +1,9 @@
+#!/bin/bash
+# ==============================================================================
+# VEILOS Polished Launcher: Private Browser
+# Launches hardened, isolated Firefox inside volatile RAM namespace
+# ==============================================================================
+
+set -euo pipefail
+
+exec /usr/local/bin/veil-run --profile private-browser

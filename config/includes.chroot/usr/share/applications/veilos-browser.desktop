@@ -1,9 +1,14 @@
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=VEILOS Private Browser
-Comment=Isolated Web Browser in disposable memory
-Exec=/usr/local/bin/veilos-sandbox -n "Private Browser" -p browser --allow-audio -- /usr/bin/firefox-esr --private-window "about:blank"
+Name=PRIVATE BROWSER
+Comment=Browse inside a temporary isolated environment.
+GenericName=Private Browser (VEILOS Isolated Environment)
+Exec=/usr/local/bin/veilos-browser
 Icon=firefox-esr
 Terminal=false
 Categories=Network;WebBrowser;Security;
+Keywords=privacy;browser;isolated;temporary;ephemeral;
+X-VEILOS-Network=Allowed
+X-VEILOS-LocalFiles=Blocked
+X-VEILOS-Persistence=Off

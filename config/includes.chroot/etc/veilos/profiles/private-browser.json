@@ -1,9 +1,21 @@
 {
   "profile_id": "private-browser",
-  "name": "PRIVATE_BROWSER",
-  "description": "Hardened private browser session with ephemeral memory and blocked host files",
+  "name": "PRIVATE BROWSER",
+  "badge": "EPHEMERAL WEB",
+  "description": "Browse inside a temporary isolated environment.",
+  "metadata_display": {
+    "Network": "Allowed",
+    "Local Files": "Blocked",
+    "Persistence": "Off"
+  },
   "executable": "/usr/bin/firefox-esr",
-  "default_args": ["--private-window", "about:blank"],
+  "default_args": [
+    "--profile",
+    "/home/veilos/.mozilla/firefox/veilos-ephemeral",
+    "--no-remote",
+    "--private-window",
+    "about:blank"
+  ],
   "filesystem_policy": {
     "root_access": "read-only",
     "user_home": "isolated-tmpfs",

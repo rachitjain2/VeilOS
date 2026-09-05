@@ -20,7 +20,7 @@ LOGO_PATH = "/usr/share/veilos/branding/veilos-logo.svg"
 class VeilosDashboard(Gtk.Window):
     def __init__(self):
         super().__init__(title="VEILOS - Disposable Computing")
-        self.set_default_size(780, 820)
+        self.set_default_size(820, 860)
         self.set_position(Gtk.WindowPosition.CENTER)
         self.get_style_context().add_class("veilos-window")
 
@@ -28,9 +28,9 @@ class VeilosDashboard(Gtk.Window):
         self.apply_css()
 
         # Root Container
-        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-        main_box.set_margin_top(28)
-        main_box.set_margin_bottom(28)
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        main_box.set_margin_top(24)
+        main_box.set_margin_bottom(24)
         main_box.set_margin_start(40)
         main_box.set_margin_end(40)
         self.add(main_box)
@@ -41,8 +41,8 @@ class VeilosDashboard(Gtk.Window):
 
         if os.path.exists(LOGO_PATH):
             logo_img = Gtk.Image.new_from_file(LOGO_PATH)
-            logo_img.set_pixel_size(72)
-            header_box.pack_start(logo_img, False, False, 4)
+            logo_img.set_pixel_size(68)
+            header_box.pack_start(logo_img, False, False, 2)
 
         title_lbl = Gtk.Label(label="VEILOS")
         title_lbl.get_style_context().add_class("title-veil")
@@ -58,14 +58,17 @@ class VeilosDashboard(Gtk.Window):
         self.status_box = self.build_status_panel()
         main_box.pack_start(self.status_box, False, False, 0)
 
-        # 3. Action Grid (The 6 Core Operations)
-        actions_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        # 3. Action Grid (The Core Operations)
+        actions_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         
-        # [ PRIVATE BROWSER ]
+        # [ PRIVATE BROWSER ] - Enhanced Polished Card
         btn_browser = self.create_action_card(
             title="PRIVATE BROWSER",
-            description="Isolated Firefox instance running in disposable RAM namespace",
-            icon_name="web-browser",
+            description="Browse inside a temporary isolated environment.",
+            icon_name="firefox-esr",
+            tags=[("Network: ", "Allowed", "pill-allowed"),
+                  ("Local Files: ", "Blocked", "pill-blocked"),
+                  ("Persistence: ", "Off", "pill-off")],
             on_click=self.launch_browser
         )
         actions_box.pack_start(btn_browser, False, False, 0)
@@ -73,8 +76,11 @@ class VeilosDashboard(Gtk.Window):
         # [ DEVELOPER WORKSPACE ]
         btn_dev = self.create_action_card(
             title="DEVELOPER WORKSPACE",
-            description="Ephemeral code editor & isolated terminal with masked host FS",
+            description="Ephemeral code editor & isolated terminal with masked host FS.",
             icon_name="utilities-terminal",
+            tags=[("Network: ", "Offline", "pill-blocked"),
+                  ("Local Files: ", "Blocked", "pill-blocked"),
+                  ("Persistence: ", "Off", "pill-off")],
             on_click=self.launch_dev
         )
         actions_box.pack_start(btn_dev, False, False, 0)
@@ -82,8 +88,10 @@ class VeilosDashboard(Gtk.Window):
         # [ APP SANDBOX ]
         btn_sandbox = self.create_action_card(
             title="APP SANDBOX",
-            description="Launch arbitrary Linux binaries inside a custom Bubblewrap jail",
+            description="Launch arbitrary Linux binaries inside a custom Bubblewrap jail.",
             icon_name="system-run",
+            tags=[("Mode: ", "Zero-Trust", "pill-allowed"),
+                  ("Network: ", "Policy-bound", "pill-off")],
             on_click=self.launch_app_sandbox
         )
         actions_box.pack_start(btn_sandbox, False, False, 0)
@@ -91,8 +99,10 @@ class VeilosDashboard(Gtk.Window):
         # [ SECURE VAULT ]
         btn_vault = self.create_action_card(
             title="SECURE VAULT",
-            description="Manage encrypted LUKS container for explicit data persistence",
+            description="Manage encrypted LUKS container for explicit data persistence.",
             icon_name="security-high",
+            tags=[("Encryption: ", "LUKS2 (AES-XTS)", "pill-allowed"),
+                  ("Access: ", "Explicit", "pill-off")],
             on_click=self.launch_vault
         )
         actions_box.pack_start(btn_vault, False, False, 0)
@@ -100,8 +110,9 @@ class VeilosDashboard(Gtk.Window):
         # [ PRIVACY CENTER ]
         btn_privacy = self.create_action_card(
             title="PRIVACY CENTER",
-            description="Inspect running workspaces, network policies, or destroy memory",
+            description="Inspect running workspaces, network policies, or destroy memory.",
             icon_name="dialog-information",
+            tags=[("Telemetry: ", "Local RAM Only", "pill-allowed")],
             on_click=self.launch_privacy_center
         )
         actions_box.pack_start(btn_privacy, False, False, 0)
@@ -119,7 +130,7 @@ class VeilosDashboard(Gtk.Window):
         # 4. Fallback Desktop Navigation Bar
         fallback_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         fallback_box.set_halign(Gtk.Align.CENTER)
-        fallback_box.set_margin_top(8)
+        fallback_box.set_margin_top(6)
 
         lbl_hint = Gtk.Label(label="Development Fallback:")
         lbl_hint.get_style_context().add_class("status-label")
@@ -130,7 +141,7 @@ class VeilosDashboard(Gtk.Window):
         btn_xfce.connect("clicked", lambda w: self.iconify())
         fallback_box.pack_start(btn_xfce, False, False, 0)
 
-        btn_term = Gtk.Button(label="Quick Host Terminal")
+        btn_term = Gtk.Button(label="Host Terminal")
         btn_term.get_style_context().add_class("fallback-btn")
         btn_term.connect("clicked", lambda w: subprocess.Popen(["xfce4-terminal"]))
         fallback_box.pack_start(btn_term, False, False, 0)
@@ -146,7 +157,6 @@ class VeilosDashboard(Gtk.Window):
         if os.path.exists(CSS_PATH):
             css_provider.load_from_path(CSS_PATH)
         else:
-            # Fallback embedded css if not installed
             raw = b"""
             window.veilos-window { background: #0f172a; color: #fff; }
             .title-veil { font-size: 32px; font-weight: bold; color: #38bdf8; }
@@ -211,16 +221,15 @@ class VeilosDashboard(Gtk.Window):
         return panel
 
     def update_status(self):
-        # Count active workspaces
         uid = os.getuid()
-        meta_dir = f"/run/user/{uid}/veilos/active_workspaces"
+        runtime_base = os.environ.get("XDG_RUNTIME_DIR", f"/tmp/veilos-{uid}")
+        meta_dir = f"{runtime_base}/active_workspaces"
         active_count = 0
         if os.path.exists(meta_dir):
             active_count = len(glob.glob(f"{meta_dir}/*.json"))
 
         self.val_privacy.set_text(f"ACTIVE ({active_count} WS)")
 
-        # Check if persistent vault is mounted
         if os.path.ismount("/media/veilos-vault"):
             self.val_persist.set_text("● ON (VAULT)")
             self.val_persist.get_style_context().remove_class("dot-amber")
@@ -232,19 +241,20 @@ class VeilosDashboard(Gtk.Window):
 
         return True
 
-    def create_action_card(self, title, description, icon_name, on_click):
+    def create_action_card(self, title, description, icon_name, tags=None, on_click=None):
         btn = Gtk.Button()
         btn.get_style_context().add_class("action-btn")
-        btn.connect("clicked", lambda w: on_click())
+        if on_click:
+            btn.connect("clicked", lambda w: on_click())
 
         hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
-        hbox.set_margin_start(6)
-        hbox.set_margin_end(6)
+        hbox.set_margin_start(4)
+        hbox.set_margin_end(4)
 
         icon = Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.DND)
         hbox.pack_start(icon, False, False, 0)
 
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         vbox.set_halign(Gtk.Align.START)
         
         lbl_title = Gtk.Label(label=title)
@@ -256,6 +266,21 @@ class VeilosDashboard(Gtk.Window):
         lbl_desc.get_style_context().add_class("btn-desc")
         lbl_desc.set_halign(Gtk.Align.START)
         vbox.pack_start(lbl_desc, False, False, 0)
+
+        # Policy Tags Row
+        if tags:
+            tag_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            tag_row.get_style_context().add_class("card-pill-row")
+            for prefix, val, pill_class in tags:
+                tag_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+                p_lbl = Gtk.Label(label=prefix)
+                p_lbl.get_style_context().add_class("pill-tag")
+                v_lbl = Gtk.Label(label=val)
+                v_lbl.get_style_context().add_class(pill_class)
+                tag_box.pack_start(p_lbl, False, False, 0)
+                tag_box.pack_start(v_lbl, False, False, 0)
+                tag_row.pack_start(tag_box, False, False, 0)
+            vbox.pack_start(tag_row, False, False, 0)
 
         hbox.pack_start(vbox, True, True, 0)
 
@@ -272,8 +297,8 @@ class VeilosDashboard(Gtk.Window):
         btn.connect("clicked", lambda w: on_click())
 
         hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
-        hbox.set_margin_start(6)
-        hbox.set_margin_end(6)
+        hbox.set_margin_start(4)
+        hbox.set_margin_end(4)
 
         icon = Gtk.Image.new_from_icon_name("system-shutdown", Gtk.IconSize.DND)
         hbox.pack_start(icon, False, False, 0)
@@ -297,29 +322,13 @@ class VeilosDashboard(Gtk.Window):
 
     # Handlers
     def launch_browser(self):
-        subprocess.Popen([
-            "/usr/local/bin/veilos-sandbox",
-            "-n", "Private Browser",
-            "-p", "browser",
-            "--allow-audio",
-            "--",
-            "/usr/bin/firefox-esr",
-            "--private-window",
-            "about:blank"
-        ])
+        subprocess.Popen(["/usr/local/bin/veil-run", "--profile", "private-browser"])
 
     def launch_dev(self):
-        # Launch editor and terminal side by side in disposable developer workspace
-        subprocess.Popen([
-            "/usr/local/bin/veilos-sandbox",
-            "-n", "Developer Workspace",
-            "-p", "developer",
-            "--",
-            "/usr/bin/mousepad"
-        ])
+        subprocess.Popen(["/usr/local/bin/veil-run", "--profile", "development"])
 
     def launch_app_sandbox(self):
-        subprocess.Popen(["/usr/local/bin/veilos-launcher"])
+        subprocess.Popen(["/usr/local/bin/veil-run", "--profile", "app-testing"])
 
     def launch_vault(self):
         subprocess.Popen(["/usr/local/bin/veilos-vault-gui"])
@@ -342,9 +351,10 @@ class VeilosDashboard(Gtk.Window):
         res = dialog.run()
         dialog.destroy()
         if res == Gtk.ResponseType.OK:
-            subprocess.run(["pkill", "-f", "veilos-sandbox"], check=False)
+            subprocess.run(["pkill", "-f", "bwrap"], check=False)
             uid = os.getuid()
-            subprocess.run(f"rm -rf /run/user/{uid}/veilos", shell=True, check=False)
+            runtime_base = os.environ.get("XDG_RUNTIME_DIR", f"/tmp/veilos-{uid}")
+            subprocess.run(f"rm -rf {runtime_base}/workspaces", shell=True, check=False)
             subprocess.Popen(["xfce4-session-logout", "--logout"])
 
 def main():
