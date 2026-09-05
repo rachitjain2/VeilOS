@@ -1,0 +1,128 @@
+#!/bin/bash
+# ==============================================================================
+# VEILOS Stale Environment Reaper & Lifecycle Guard: veil-cleanup
+# Safely discovers and cleans up orphaned or crashed VEILOS sandbox environments.
+# NEVER terminates unrelated system processes.
+# ==============================================================================
+
+set -euo pipefail
+
+SESSION_UID=$(id -u)
+RUNTIME_BASE="${XDG_RUNTIME_DIR:-/tmp}/veilos-${SESSION_UID}"
+ACTIVE_DIR="${RUNTIME_BASE}/active_workspaces"
+WORKSPACES_DIR="${RUNTIME_BASE}/workspaces"
+LOGS_DIR="${RUNTIME_BASE}/logs"
+LOG_FILE="${LOGS_DIR}/veil-cleanup.log"
+
+mkdir -p "$ACTIVE_DIR" "$WORKSPACES_DIR" "$LOGS_DIR"
+
+log_event() {
+    local event_type="$1"
+    local message="$2"
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local entry="[$timestamp] [$event_type] $message"
+    echo "$entry"
+    echo "$entry" >> "$LOG_FILE" 2>/dev/null || true
+}
+
+scan_and_reap() {
+    log_event "cleanup_triggered" "Starting stale environment sweep..."
+    local reaped_count=0
+
+    # 1. Sweep active workspace JSON registrations
+    for meta in "${ACTIVE_DIR}"/*.json; do
+        if [[ -f "$meta" ]]; then
+            local ws_id pid status ws_path
+            ws_id=$(grep -o '"id": "[^"]*' "$meta" | cut -d'"' -f4 || true)
+            pid=$(grep -o '"pid": [0-9]*' "$meta" | awk '{print $2}' || true)
+            status=$(grep -o '"lifecycle_state": "[^"]*' "$meta" | cut -d'"' -f4 || true)
+            ws_path=$(grep -o '"workspace_path": "[^"]*' "$meta" | cut -d'"' -f4 || true)
+
+            if [[ -z "$ws_id" ]]; then
+                continue
+            fi
+
+            # Check if PID is alive and actually a VEILOS container process
+            local is_alive=false
+            if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+                local cmdline
+                cmdline=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || echo "")
+                if [[ "$cmdline" =~ bwrap || "$cmdline" =~ veil-run ]]; then
+                    is_alive=true
+                fi
+            fi
+
+            if [[ "$is_alive" == "false" ]]; then
+                log_event "workspace_stopped" "Environment [${ws_id}] PID ${pid:-unknown} detected as terminated or crashed."
+                
+                # Update status
+                sed -i 's/"lifecycle_state": "[^"]*"/"lifecycle_state": "STOPPING"/' "$meta" 2>/dev/null || true
+
+                # Safely terminate any remaining child processes matching the specific ws_id
+                pkill -9 -f "${ws_id}" 2>/dev/null || true
+
+                # Shred and remove directory
+                if [[ -n "$ws_path" && -d "$ws_path" ]]; then
+                    find "$ws_path" -type f -exec shred -u -z -n 1 {} + 2>/dev/null || rm -rf "$ws_path" 2>/dev/null || true
+                    rm -rf "$ws_path" 2>/dev/null || true
+                fi
+
+                rm -f "$meta"
+                log_event "workspace_destroyed" "Orphaned workspace [${ws_id}] reclaimed and memory scrubbed."
+                reaped_count=$((reaped_count + 1))
+            fi
+        fi
+    done
+
+    # 2. Check for abandoned directories in WORKSPACES_DIR without matching JSON
+    for d in "${WORKSPACES_DIR}"/*; do
+        if [[ -d "$d" ]]; then
+            local dir_name
+            dir_name=$(basename "$d")
+            local meta_file="${ACTIVE_DIR}/${dir_name}.json"
+            if [[ ! -f "$meta_file" ]]; then
+                log_event "workspace_stopped" "Unregistered abandoned workspace directory detected: ${dir_name}"
+                find "$d" -type f -exec shred -u -z -n 1 {} + 2>/dev/null || rm -rf "$d" 2>/dev/null || true
+                rm -rf "$d" 2>/dev/null || true
+                log_event "workspace_destroyed" "Cleaned up unregistered workspace directory: ${dir_name}"
+                reaped_count=$((reaped_count + 1))
+            fi
+        fi
+    done
+
+    echo "[veil-cleanup] Scan complete. Reaped ${reaped_count} stale environment(s)."
+}
+
+force_kill_target() {
+    local target_id="$1"
+    log_event "cleanup_triggered" "Explicit termination requested for environment [${target_id}]"
+
+    local meta="${ACTIVE_DIR}/${target_id}.json"
+    local ws_path="${WORKSPACES_DIR}/${target_id}"
+
+    # Kill specific workspace processes only
+    pkill -9 -f "${target_id}" 2>/dev/null || true
+
+    if [[ -d "$ws_path" ]]; then
+        find "$ws_path" -type f -exec shred -u -z -n 1 {} + 2>/dev/null || rm -rf "$ws_path" 2>/dev/null || true
+        rm -rf "$ws_path" 2>/dev/null || true
+    fi
+
+    rm -f "$meta" 2>/dev/null || true
+    log_event "workspace_destroyed" "Environment [${target_id}] explicitly destroyed."
+}
+
+case "${1:-scan}" in
+    scan)
+        scan_and_reap ;;
+    kill)
+        if [[ -z "${2:-}" ]]; then
+            log_event "cleanup_failed" "Missing target workspace ID for kill command."
+            exit 1
+        fi
+        force_kill_target "$2" ;;
+    *)
+        echo "Usage: $0 {scan|kill <workspace-id>}" >&2
+        exit 1 ;;
+esac
