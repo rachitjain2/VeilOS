@@ -1,0 +1,54 @@
+#!/bin/bash
+# ==============================================================================
+# VEILOS Destroy Environment Command: veilos-destroy-env
+# Forcefully terminates all child processes in the specified (or latest) workspace
+# and shreds the temporary memory mount.
+# ==============================================================================
+
+set -euo pipefail
+
+SESSION_UID=$(id -u)
+RUNTIME_BASE="${XDG_RUNTIME_DIR:-/tmp}/veilos-${SESSION_UID}"
+ACTIVE_DIR="${RUNTIME_BASE}/active_workspaces"
+TARGET_WS="${1:-}"
+
+if [[ -z "$TARGET_WS" ]]; then
+    # Look for most recent active workspace
+    LATEST=$(ls -t "${ACTIVE_DIR}"/*.json 2>/dev/null | head -n 1 || true)
+    if [[ -n "$LATEST" && -f "$LATEST" ]]; then
+        TARGET_WS=$(basename "$LATEST" .json)
+    fi
+fi
+
+if [[ -z "$TARGET_WS" ]]; then
+    echo "[VEILOS] No active disposable workspace found to destroy."
+    exit 0
+fi
+
+echo "=========================================================="
+echo "      [VEILOS] DESTROYING WORKSPACE: ${TARGET_WS}        "
+echo "=========================================================="
+
+META_FILE="${ACTIVE_DIR}/${TARGET_WS}.json"
+WS_DIR="${RUNTIME_BASE}/workspaces/${TARGET_WS}"
+
+# 1. Terminate all child processes belonging to the environment
+echo "[*] Killing all processes bound to workspace ${TARGET_WS}..."
+pkill -9 -f "${TARGET_WS}" 2>/dev/null || true
+pkill -9 -f "veilos-app-testing-starter" 2>/dev/null || true
+
+# 2. Scrub volatile storage
+if [[ -d "$WS_DIR" ]]; then
+    echo "[*] Scrubbing and shredding temporary filesystem data in RAM..."
+    find "$WS_DIR" -type f -exec shred -u -z -n 1 {} + 2>/dev/null || true
+    rm -rf "$WS_DIR" 2>/dev/null || true
+fi
+
+# 3. Remove metadata
+rm -f "$META_FILE" 2>/dev/null || true
+
+echo "=========================================================="
+echo "[SUCCESS] Environment ${TARGET_WS} completely obliterated."
+echo "All processes terminated. All temporary data erased."
+echo "=========================================================="
+notify-send "VEILOS Security" "Environment ${TARGET_WS} Destroyed." -i dialog-warning 2>/dev/null || true

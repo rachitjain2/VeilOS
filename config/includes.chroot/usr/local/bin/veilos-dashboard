@@ -85,11 +85,15 @@ class VeilosDashboard(Gtk.Window):
 
         # [ APP SANDBOX ]
         btn_sandbox = self.create_action_card(
-            title="APP SANDBOX",
-            description="Launch arbitrary Linux binaries inside a custom Bubblewrap jail.",
+            title="APP TESTING",
+            description="Run software inside a disposable environment.",
             icon_name="system-run",
-            tags=[("Mode: ", "Zero-Trust", "pill-allowed"),
-                  ("Network: ", "Policy-bound", "pill-off")],
+            tags=[("Files: ", "BLOCKED", "pill-blocked"),
+                  ("Camera: ", "BLOCKED", "pill-blocked"),
+                  ("Microphone: ", "BLOCKED", "pill-blocked"),
+                  ("USB: ", "BLOCKED", "pill-blocked"),
+                  ("Network: ", "ALLOWED", "pill-allowed"),
+                  ("Storage: ", "TEMPORARY", "pill-off")],
             on_click=self.launch_app_sandbox
         )
         actions_box.pack_start(btn_sandbox, False, False, 0)
@@ -363,3 +367,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

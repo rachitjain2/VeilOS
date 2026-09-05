@@ -1,9 +1,18 @@
 {
   "profile_id": "app-testing",
-  "name": "APP_TESTING",
-  "description": "Zero-trust sandbox for untrusted scripts and binaries. Offline, zero-access.",
-  "executable": "/usr/bin/xfce4-terminal",
-  "default_args": ["--title=VEILOS App Testing Jail"],
+  "name": "APP TESTING",
+  "badge": "ZERO-TRUST SANDBOX",
+  "description": "Run software inside a disposable environment.",
+  "permissions_display": {
+    "Files": "BLOCKED (ENFORCED)",
+    "Camera": "BLOCKED (ENFORCED)",
+    "Microphone": "BLOCKED (ENFORCED)",
+    "USB": "BLOCKED (ENFORCED)",
+    "Network": "ALLOWED (ENFORCED)",
+    "Storage": "TEMPORARY (ENFORCED)"
+  },
+  "executable": "/usr/local/bin/veilos-app-testing-starter",
+  "default_args": [],
   "filesystem_policy": {
     "root_access": "read-only",
     "user_home": "isolated-tmpfs",
@@ -12,8 +21,9 @@
     "allow_tmp": true
   },
   "network_policy": {
-    "enabled": false,
-    "dns": "none"
+    "enabled": true,
+    "configurable": true,
+    "dns": "system"
   },
   "storage_policy": {
     "persistent_storage": false,
@@ -22,7 +32,8 @@
   "device_policy": {
     "audio": false,
     "camera": false,
-    "microphone": false
+    "microphone": false,
+    "usb": false
   },
   "resource_policy": {
     "memory_limit_mb": 1024,

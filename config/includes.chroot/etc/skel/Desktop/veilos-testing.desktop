@@ -1,0 +1,17 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=APP TESTING
+Comment=Run software inside a disposable environment.
+GenericName=App Testing Workspace (VEILOS Isolated Environment)
+Exec=/usr/local/bin/veilos-testing
+Icon=system-run
+Terminal=false
+Categories=Utility;Security;Development;
+Keywords=test;sandbox;jail;isolated;untrusted;
+X-VEILOS-Files=BLOCKED
+X-VEILOS-Camera=BLOCKED
+X-VEILOS-Microphone=BLOCKED
+X-VEILOS-USB=BLOCKED
+X-VEILOS-Network=ALLOWED
+X-VEILOS-Storage=TEMPORARY

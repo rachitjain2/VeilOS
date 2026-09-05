@@ -1,0 +1,39 @@
+#!/bin/bash
+# ==============================================================================
+# VEILOS App Testing Starter
+# Sets up isolated test directory and launches test terminal
+# ==============================================================================
+
+set -euo pipefail
+
+WORKSPACE_HOME="${HOME:-/tmp}"
+TEST_DIR="${WORKSPACE_HOME}/test-staging"
+
+mkdir -p "${TEST_DIR}"
+cd "${TEST_DIR}"
+
+cat << 'EOF' > "${TEST_DIR}/README.txt"
+==================================================================
+                 VEILOS APP TESTING ENVIRONMENT
+==================================================================
+
+Policy Enforcement Status:
+- Host Files:   BLOCKED (ENFORCED: Host filesystem masked)
+- Camera:       BLOCKED (ENFORCED: /dev/video* devices unmounted)
+- Microphone:   BLOCKED (ENFORCED: Audio sockets unmounted)
+- USB Devices:  BLOCKED (ENFORCED: /dev/bus/usb unmounted)
+- Network:      ALLOWED (ENFORCED: Configurable)
+- Storage:      TEMPORARY (ENFORCED: Volatile RAM tmpfs)
+
+Resource Quotas:
+- Max Memory:   1024 MB
+- Max PIDs:     128 processes
+- CPU Quota:    50% (cgroup / ulimit)
+
+All files placed in this directory will be completely obliterated
+upon clicking [ DESTROY ENVIRONMENT ] in the VEILOS Privacy Center
+or exiting this test terminal.
+==================================================================
+EOF
+
+exec xfce4-terminal --working-directory="${TEST_DIR}" --title="VEILOS App Testing Jail [VOLATILE]" -e "cat README.txt; bash"

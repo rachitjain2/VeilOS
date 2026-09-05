@@ -1,0 +1,3 @@
+#!/bin/bash
+set -euo pipefail
+exec /usr/local/bin/veil-run --profile app-testing
