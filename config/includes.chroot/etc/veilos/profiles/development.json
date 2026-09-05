@@ -1,0 +1,32 @@
+{
+  "profile_id": "development",
+  "name": "DEVELOPMENT",
+  "description": "Isolated developer workspace for code editing and compilation with masked host files",
+  "executable": "/usr/bin/mousepad",
+  "default_args": [],
+  "filesystem_policy": {
+    "root_access": "read-only",
+    "user_home": "isolated-tmpfs",
+    "block_host_files": true,
+    "allow_system_fonts": true,
+    "allow_tmp": true
+  },
+  "network_policy": {
+    "enabled": false,
+    "dns": "none"
+  },
+  "storage_policy": {
+    "persistent_storage": false,
+    "vault_access": false
+  },
+  "device_policy": {
+    "audio": false,
+    "camera": false,
+    "microphone": false
+  },
+  "resource_policy": {
+    "memory_limit_mb": 1536,
+    "cpu_quota_percent": 90,
+    "max_pids": 512
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "profile_id": "private-browser",
+  "name": "PRIVATE_BROWSER",
+  "description": "Hardened private browser session with ephemeral memory and blocked host files",
+  "executable": "/usr/bin/firefox-esr",
+  "default_args": ["--private-window", "about:blank"],
+  "filesystem_policy": {
+    "root_access": "read-only",
+    "user_home": "isolated-tmpfs",
+    "block_host_files": true,
+    "allow_system_fonts": true,
+    "allow_tmp": true
+  },
+  "network_policy": {
+    "enabled": true,
+    "dns": "system"
+  },
+  "storage_policy": {
+    "persistent_storage": false,
+    "vault_access": false
+  },
+  "device_policy": {
+    "audio": true,
+    "camera": false,
+    "microphone": false
+  },
+  "resource_policy": {
+    "memory_limit_mb": 2048,
+    "cpu_quota_percent": 80,
+    "max_pids": 256
+  }
+}

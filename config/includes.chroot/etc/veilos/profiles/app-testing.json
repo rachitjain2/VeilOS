@@ -1,0 +1,32 @@
+{
+  "profile_id": "app-testing",
+  "name": "APP_TESTING",
+  "description": "Zero-trust sandbox for untrusted scripts and binaries. Offline, zero-access.",
+  "executable": "/usr/bin/xfce4-terminal",
+  "default_args": ["--title=VEILOS App Testing Jail"],
+  "filesystem_policy": {
+    "root_access": "read-only",
+    "user_home": "isolated-tmpfs",
+    "block_host_files": true,
+    "allow_system_fonts": true,
+    "allow_tmp": true
+  },
+  "network_policy": {
+    "enabled": false,
+    "dns": "none"
+  },
+  "storage_policy": {
+    "persistent_storage": false,
+    "vault_access": false
+  },
+  "device_policy": {
+    "audio": false,
+    "camera": false,
+    "microphone": false
+  },
+  "resource_policy": {
+    "memory_limit_mb": 1024,
+    "cpu_quota_percent": 50,
+    "max_pids": 128
+  }
+}
