@@ -20,7 +20,7 @@ echo "PASS: Desktop Entry contains all required user tags & descriptions."
 
 echo "=== [TEST 2] Verifying Private Browser Profile Policy ==="
 PFILE="${PROFILES_DIR}/private-browser.json"
-grep -q '"executable": "/usr/bin/firefox-esr"' "$PFILE"
+grep -qE '"executable": "/usr/bin/(chromium|firefox-esr)"' "$PFILE"
 grep -q '"enabled": true' "$PFILE"
 grep -q '"block_host_files": true' "$PFILE"
 grep -q '"persistent_storage": false' "$PFILE"
@@ -29,7 +29,7 @@ echo "PASS: Policy strictly matches specification (Network: Allowed, Local Files
 echo "=== [TEST 3] Testing Browser Sandbox Execution & Ephemeral Profile Argument ==="
 OUTPUT=$(PROFILES_DIR="${PROFILES_DIR}" bash "${BIN}" --dry-run --profile private-browser)
 
-echo "$OUTPUT" | grep -q "/usr/bin/firefox-esr"
+echo "$OUTPUT" | grep -qE "(/usr/bin/chromium|/usr/bin/firefox-esr)"
 echo "$OUTPUT" | grep -q "veilos-private-browser"
 echo "$OUTPUT" | grep -q "resolv.conf"
 echo "PASS: Dry run verifies Bubblewrap isolation and network allowance."

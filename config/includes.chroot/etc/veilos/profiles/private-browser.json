@@ -4,8 +4,8 @@
   "name": "Private Browser",
   "description": "Browse inside a temporary isolated environment.",
   "application": "Chromium / Firefox",
-  "executable": "/usr/bin/firefox-esr",
-  "fallback_executable": "/usr/bin/chromium",
+  "executable": "/usr/bin/chromium",
+  "fallback_executable": "/usr/bin/firefox-esr",
   "arguments": [
     "--incognito",
     "--temp-profile",
@@ -14,10 +14,10 @@
     "about:blank"
   ],
   "default_args": [
-    "--profile",
-    "/home/veilos/.mozilla/firefox/veilos-ephemeral",
-    "--no-remote",
-    "--private-window",
+    "--incognito",
+    "--temp-profile",
+    "--no-first-run",
+    "--no-default-browser-check",
     "about:blank"
   ],
   "fallback_arguments": [

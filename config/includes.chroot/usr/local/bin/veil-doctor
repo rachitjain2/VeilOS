@@ -172,7 +172,7 @@ done
 
 echo ""
 echo "--- 5. VEILOS Runtime Services & Permissions ---"
-for s_bin in veil-run veil-session veil-cleanup veilos-dashboard veilos-privacy-center veilos-vault-service; do
+for s_bin in veil-run veil-session veil-cleanup veil-live-test veil-demo-reset veilos-dashboard veilos-privacy-center veilos-vault-service; do
     FULL_PATH="${BIN_DIR}/${s_bin}"
     # In source tree check fallback if running outside live root
     if [[ ! -f "$FULL_PATH" ]]; then
