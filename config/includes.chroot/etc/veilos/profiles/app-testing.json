@@ -1,8 +1,12 @@
 {
+  "id": "app-testing",
   "profile_id": "app-testing",
-  "name": "APP TESTING",
-  "badge": "ZERO-TRUST SANDBOX",
-  "description": "Run software inside a disposable environment.",
+  "name": "App Testing",
+  "description": "Run software inside a disposable zero-trust environment.",
+  "application": "Isolated Test Terminal / Runtime Jail",
+  "executable": "/usr/local/bin/veilos-app-testing-starter",
+  "arguments": [],
+  "default_args": [],
   "permissions_display": {
     "Files": "BLOCKED (ENFORCED)",
     "Camera": "BLOCKED (ENFORCED)",
@@ -11,8 +15,14 @@
     "Network": "BLOCKED (ENFORCED)",
     "Storage": "TEMPORARY (ENFORCED)"
   },
-  "executable": "/usr/local/bin/veilos-app-testing-starter",
-  "default_args": [],
+  "filesystemPolicy": {
+    "hostFiles": false,
+    "temporaryHome": true,
+    "readOnlySystem": true,
+    "allowFonts": true,
+    "allowTmp": true,
+    "bindMounts": []
+  },
   "filesystem_policy": {
     "root_access": "read-only",
     "user_home": "isolated-tmpfs",
@@ -20,14 +30,20 @@
     "allow_system_fonts": true,
     "allow_tmp": true
   },
-  "network_policy": {
-    "enabled": false,
-    "configurable": true,
+  "networkPolicy": {
+    "internet": false,
     "dns": "none"
   },
-  "storage_policy": {
-    "persistent_storage": false,
-    "vault_access": false
+  "network_policy": {
+    "enabled": false,
+    "dns": "none"
+  },
+  "devicePolicy": {
+    "camera": "blocked",
+    "microphone": "blocked",
+    "usb": "blocked",
+    "audio": "blocked",
+    "hostDevices": "blocked"
   },
   "device_policy": {
     "audio": false,
@@ -35,9 +51,27 @@
     "microphone": false,
     "usb": false
   },
+  "storagePolicy": {
+    "persistent": false,
+    "vaultAccess": false
+  },
+  "storage_policy": {
+    "persistent_storage": false,
+    "vault_access": false
+  },
+  "resourceLimits": {
+    "maxCpuCores": 2,
+    "maxMemoryMb": 1024,
+    "maxPids": 128,
+    "maxStorageMb": 512
+  },
   "resource_policy": {
     "memory_limit_mb": 1024,
     "cpu_quota_percent": 50,
     "max_pids": 128
+  },
+  "cleanupPolicy": {
+    "autoPurgeOnExit": true,
+    "shredVolatileMemory": true
   }
 }

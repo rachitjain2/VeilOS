@@ -73,6 +73,7 @@ util-linux
 
 # Minimal Builtin Apps
 firefox-esr
+chromium
 nano
 mousepad
 htop

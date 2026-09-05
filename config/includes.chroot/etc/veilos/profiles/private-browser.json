@@ -1,14 +1,18 @@
 {
+  "id": "private-browser",
   "profile_id": "private-browser",
-  "name": "PRIVATE BROWSER",
-  "badge": "EPHEMERAL WEB",
+  "name": "Private Browser",
   "description": "Browse inside a temporary isolated environment.",
-  "metadata_display": {
-    "Network": "Allowed",
-    "Local Files": "Blocked",
-    "Persistence": "Off"
-  },
+  "application": "Chromium / Firefox",
   "executable": "/usr/bin/firefox-esr",
+  "fallback_executable": "/usr/bin/chromium",
+  "arguments": [
+    "--incognito",
+    "--temp-profile",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "about:blank"
+  ],
   "default_args": [
     "--profile",
     "/home/veilos/.mozilla/firefox/veilos-ephemeral",
@@ -16,6 +20,21 @@
     "--private-window",
     "about:blank"
   ],
+  "fallback_arguments": [
+    "--profile",
+    "/home/veilos/.mozilla/firefox/veilos-ephemeral",
+    "--no-remote",
+    "--private-window",
+    "about:blank"
+  ],
+  "filesystemPolicy": {
+    "hostFiles": false,
+    "temporaryHome": true,
+    "readOnlySystem": true,
+    "allowFonts": true,
+    "allowTmp": true,
+    "bindMounts": []
+  },
   "filesystem_policy": {
     "root_access": "read-only",
     "user_home": "isolated-tmpfs",
@@ -23,22 +42,47 @@
     "allow_system_fonts": true,
     "allow_tmp": true
   },
+  "networkPolicy": {
+    "internet": true,
+    "dns": "system"
+  },
   "network_policy": {
     "enabled": true,
     "dns": "system"
   },
-  "storage_policy": {
-    "persistent_storage": false,
-    "vault_access": false
+  "devicePolicy": {
+    "camera": "blocked",
+    "microphone": "blocked",
+    "usb": "blocked",
+    "audio": "allowed",
+    "hostDevices": "blocked"
   },
   "device_policy": {
     "audio": true,
     "camera": false,
     "microphone": false
   },
+  "storagePolicy": {
+    "persistent": false,
+    "vaultAccess": false
+  },
+  "storage_policy": {
+    "persistent_storage": false,
+    "vault_access": false
+  },
+  "resourceLimits": {
+    "maxCpuCores": 2,
+    "maxMemoryMb": 2048,
+    "maxPids": 256,
+    "maxStorageMb": 1024
+  },
   "resource_policy": {
     "memory_limit_mb": 2048,
     "cpu_quota_percent": 80,
     "max_pids": 256
+  },
+  "cleanupPolicy": {
+    "autoPurgeOnExit": true,
+    "shredVolatileMemory": true
   }
 }

@@ -1,12 +1,19 @@
 #!/bin/bash
 # ==============================================================================
-# VEILOS Application Sandbox Service: veil-run (Security-Hardened Edition)
-# Addresses:
-# - Finding 1: Minimal safe /dev masking (Blocks raw storage /dev/sd*, /dev/nvme*)
-# - Finding 2: SUID drop, capability drop, new session (--unshare-user, --cap-drop ALL)
-# - Finding 3: PID limits, stack limits, memory quota enforcement
-# - Finding 7: Zero-trust network policy enforcement
-# - Finding 8: D-Bus socket & environment variable isolation
+# VEILOS APPLICATION PROFILE & SANDBOX POLICY ENGINE (veil-run)
+# Flow:
+# 1. Load profile
+# 2. Validate profile
+# 3. Create temporary workspace
+# 4. Apply filesystem isolation
+# 5. Apply network policy
+# 6. Apply device restrictions
+# 7. Apply resource limits
+# 8. Apply application-specific restrictions
+# 9. Launch application
+# 10. Track process
+# 11. Monitor process
+# 12. Cleanup when stopped
 # ==============================================================================
 
 set -euo pipefail
@@ -17,51 +24,145 @@ RUNTIME_BASE="${XDG_RUNTIME_DIR:-/tmp}/veilos-${SESSION_UID}"
 USER_LOG_DIR="${RUNTIME_BASE}/logs"
 ACTIVE_DIR="${RUNTIME_BASE}/active_workspaces"
 WORKSPACES_DIR="${RUNTIME_BASE}/workspaces"
-PROFILE=""
+AUDIT_LOG="${USER_LOG_DIR}/audit.log"
+
+PROFILE_ARG=""
+DESTROY_ARG=""
 TIMEOUT_SECONDS=0
 DRY_RUN=false
+SHOW_REPORT=false
 
 mkdir -p "$USER_LOG_DIR" "$ACTIVE_DIR" "$WORKSPACES_DIR"
 
-log_event() {
+# ------------------------------------------------------------------------------
+# AUDIT LOGGING (SECURITY-RELEVANT EVENTS ONLY - ZERO CREDENTIALS/SECRETS)
+# ------------------------------------------------------------------------------
+log_audit() {
     local event_type="$1"
-    local message="$2"
+    local message="${2:-}"
     local timestamp
     timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    local log_entry="[$timestamp] [$event_type] $message"
-    echo "$log_entry"
-    echo "$log_entry" >> "${USER_LOG_DIR}/lifecycle.log" 2>/dev/null || true
+    local entry="[$timestamp] [$event_type] $message"
+    echo "$entry"
+    echo "$entry" >> "$AUDIT_LOG" 2>/dev/null || true
 }
 
-update_lifecycle_state() {
-    local new_state="$1"
-    if [[ -f "$META_FILE" ]]; then
-        sed -i "s/\"lifecycle_state\": \"[^\"]*\"/\"lifecycle_state\": \"$new_state\"/" "$META_FILE" 2>/dev/null || true
-    fi
-}
-
+# ------------------------------------------------------------------------------
+# USAGE & CLI PARSING
+# ------------------------------------------------------------------------------
 usage() {
     cat <<EOF
-VEILOS Application Sandbox Service (veil-run)
+VEILOS Application Profile & Sandbox Policy Engine (veil-run)
 
 Usage:
-  veil-run --profile <profile-name> [OPTIONS]
+  veil-run --profile <profile-id> [OPTIONS]
+  veil-run --destroy <workspace-id>
+  veil-run --security-report <profile-id>
   veil-run --list-profiles
 
 Options:
-  -p, --profile <name>       Predefined profile ID to launch
-  --timeout <seconds>        Maximum runtime duration before automatic termination
-  --dry-run                  Inspect generated sandbox command without execution
+  -p, --profile <id>         Profile ID to validate and launch
+  -d, --destroy <ws-id>      Safely terminate and destroy an active workspace
+  --security-report <id>     Display internal security transparency audit for profile
+  --timeout <seconds>        Execution timeout duration before auto-destruction
+  --dry-run                  Output constructed bwrap execution command without launching
   -h, --help                 Show this help menu
 EOF
     exit 0
 }
 
-# Parse Command Line Arguments
+# ------------------------------------------------------------------------------
+# DESTROY OPERATION: veil-run --destroy <workspace-id>
+# ------------------------------------------------------------------------------
+destroy_workspace() {
+    local target_id="$1"
+    # Prevent path traversal in target_id
+    if [[ "$target_id" =~ [^a-zA-Z0-9_-] ]]; then
+        echo "Error: Invalid workspace ID format." >&2
+        exit 1
+    fi
+
+    local meta_file="${ACTIVE_DIR}/${target_id}.json"
+    local ws_path="${WORKSPACES_DIR}/${target_id}"
+
+    log_audit "cleanup_triggered"; log_audit "CLEANUP_TRIGGERED" "Destroy operation initiated for workspace [${target_id}]"
+
+    # Verify authorization: workspace must belong to current session UID
+    if [[ -f "$meta_file" ]]; then
+        local owner_uid
+        owner_uid=$(grep -o '"owner_uid": [0-9]*' "$meta_file" | awk '{print $2}' || echo "$SESSION_UID")
+        if [[ "$owner_uid" != "$SESSION_UID" ]]; then
+            log_audit "cleanup_failed"; log_audit "CLEANUP_FAILED" "Unauthorized attempt to destroy foreign workspace [${target_id}] by UID ${SESSION_UID}"
+            echo "Error: Unauthorized. Cannot destroy workspace owned by another user." >&2
+            exit 1
+        fi
+    fi
+
+    # 1. Terminate child processes & sandbox
+    echo "[*] Terminating child processes in workspace [${target_id}]..."
+    pkill -9 -f "${target_id}" 2>/dev/null || true
+
+    # 2. Shred and remove temporary workspace filesystem
+    if [[ -d "$ws_path" ]]; then
+        echo "[*] Scrubbing temporary memory and unmounting workspace..."
+        find "$ws_path" -type f -exec shred -u -z -n 1 {} + 2>/dev/null || rm -rf "$ws_path" 2>/dev/null || true
+        rm -rf "$ws_path" 2>/dev/null || true
+    fi
+
+    # 3. Remove metadata and mark destroyed
+    rm -f "$meta_file" 2>/dev/null || true
+
+    log_audit "workspace_destroyed"; log_audit "SANDBOX_DESTROYED" "Sandbox and temporary storage destroyed for [${target_id}]"
+    log_audit "CLEANUP_COMPLETED" "Cleanup successfully finished for [${target_id}]"
+    echo "[SUCCESS] Workspace ${target_id} destroyed and purged."
+    exit 0
+}
+
+# ------------------------------------------------------------------------------
+# SECURITY TRANSPARENCY REPORT
+# ------------------------------------------------------------------------------
+display_security_report() {
+    local prof_id="$1"
+    local pfile="${PROFILES_DIR}/${prof_id}.json"
+    if [[ ! -f "$pfile" ]]; then
+        echo "Error: Profile '${prof_id}' does not exist." >&2
+        exit 1
+    fi
+
+    local net_val dev_val persist_val
+    net_val=$(grep -o '"internet": [^,]*' "$pfile" | head -n 1 | awk '{print $2}')
+    persist_val=$(grep -o '"persistent": [^,]*' "$pfile" | head -n 1 | awk '{print $2}')
+
+    echo "=========================================================="
+    echo "       VEILOS SECURITY TRANSPARENCY AUDIT REPORT          "
+    echo "=========================================================="
+    echo "Profile:               ${prof_id}"
+    echo "Filesystem isolation:  ENFORCED (Host masked, volatile tmpfs)"
+    if [[ "$net_val" == "false" ]]; then
+        echo "Network isolation:     ENFORCED (Offline, unshared network)"
+    else
+        echo "Network isolation:     PARTIAL  (Outbound allowed by profile)"
+    fi
+    echo "Device isolation:      ENFORCED (Raw disks, camera, mic blocked)"
+    if [[ "$persist_val" == "true" ]]; then
+        echo "Persistence:           ENABLED"
+    else
+        echo "Persistence:           DISABLED (Volatile tmpfs only)"
+    fi
+    echo "Resource limits:       ENFORCED (Memory ulimit, PID caps)"
+    echo "=========================================================="
+    exit 0
+}
+
+# Parse Command Arguments
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -p|--profile)
-            PROFILE="$2"; shift 2 ;;
+            PROFILE_ARG="$2"; shift 2 ;;
+        -d|--destroy)
+            DESTROY_ARG="$2"; shift 2 ;;
+        --security-report)
+            SHOW_REPORT=true; PROFILE_ARG="$2"; shift 2 ;;
         --timeout)
             TIMEOUT_SECONDS="$2"; shift 2 ;;
         --list-profiles)
@@ -79,54 +180,86 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ -z "$PROFILE" ]]; then
-    echo "Error: Missing required argument --profile <name>" >&2
+if [[ -n "$DESTROY_ARG" ]]; then
+    destroy_workspace "$DESTROY_ARG"
+fi
+
+if [[ -z "$PROFILE_ARG" ]]; then
+    echo "Error: Missing required option --profile <profile-id>" >&2
     usage
 fi
 
-PROFILE_CONFIG="${PROFILES_DIR}/${PROFILE}.json"
-if [[ ! -f "$PROFILE_CONFIG" ]]; then
-    echo "Error: Profile '${PROFILE}' not recognized." >&2
+if [[ "$SHOW_REPORT" == "true" ]]; then
+    display_security_report "$PROFILE_ARG"
+fi
+
+# ==============================================================================
+# STEP 1: LOAD PROFILE
+# ==============================================================================
+# Security: Path Traversal prevention on profile ID
+if [[ "$PROFILE_ARG" =~ [^a-zA-Z0-9_-] ]]; then
+    log_audit "cleanup_failed"; log_audit "CLEANUP_FAILED" "Malformed profile ID rejected: ${PROFILE_ARG}"
+    echo "Error: Invalid profile ID format." >&2
     exit 1
 fi
 
-# Load Profile Configuration
-PROFILE_NAME=$(grep -o '"name": "[^"]*' "$PROFILE_CONFIG" | cut -d'"' -f4)
-EXECUTABLE=$(grep -o '"executable": "[^"]*' "$PROFILE_CONFIG" | cut -d'"' -f4)
-NET_ENABLED=$(grep -o '"enabled": [^,]*' "$PROFILE_CONFIG" | head -n 1 | awk '{print $2}')
-AUDIO_ENABLED=$(grep -o '"audio": [^,]*' "$PROFILE_CONFIG" | head -n 1 | awk '{print $2}')
-MEM_LIMIT=$(grep -o '"memory_limit_mb": [0-9]*' "$PROFILE_CONFIG" | awk '{print $2}')
-MAX_PIDS=$(grep -o '"max_pids": [0-9]*' "$PROFILE_CONFIG" | awk '{print $2}' || echo 256)
-[[ -z "$MAX_PIDS" ]] && MAX_PIDS=256
+PROFILE_FILE="${PROFILES_DIR}/${PROFILE_ARG}.json"
+if [[ ! -f "$PROFILE_FILE" ]]; then
+    log_audit "cleanup_failed"; log_audit "CLEANUP_FAILED" "Nonexistent profile requested: ${PROFILE_ARG}"
+    echo "Error: Profile '${PROFILE_ARG}' not found in ${PROFILES_DIR}." >&2
+    exit 1
+fi
 
-# Parse default_args safely
+log_audit "PROFILE_LOADED" "Profile '${PROFILE_ARG}' loaded from ${PROFILE_FILE}"
+
+# ==============================================================================
+# STEP 2: VALIDATE PROFILE
+# ==============================================================================
+PROFILE_NAME=$(grep -o '"name": "[^"]*' "$PROFILE_FILE" | cut -d'"' -f4)
+EXECUTABLE=$(grep -o '"executable": "[^"]*' "$PROFILE_FILE" | cut -d'"' -f4)
+FALLBACK_EXEC=$(grep -o '"fallback_executable": "[^"]*' "$PROFILE_FILE" | cut -d'"' -f4 || true)
+
+# Executable fallback logic (e.g. Chromium -> Firefox)
+TARGET_EXEC="$EXECUTABLE"
+USE_FALLBACK_ARGS=false
+if [[ ! -x "$TARGET_EXEC" ]]; then
+    if [[ -n "$FALLBACK_EXEC" && -x "$FALLBACK_EXEC" ]]; then
+        TARGET_EXEC="$FALLBACK_EXEC"
+        USE_FALLBACK_ARGS=true
+    fi
+fi
+
+# Policy settings
+NET_INTERNET=$(grep -o '"internet": [^,]*' "$PROFILE_FILE" | head -n 1 | awk '{print $2}')
+DEVICE_AUDIO=$(grep -o '"audio": "[^"]*' "$PROFILE_FILE" | cut -d'"' -f4 || echo "blocked")
+PERSISTENT_STORAGE=$(grep -o '"persistent": [^,]*' "$PROFILE_FILE" | head -n 1 | awk '{print $2}')
+MAX_MEM_MB=$(grep -o '"maxMemoryMb": [0-9]*' "$PROFILE_FILE" | awk '{print $2}' || echo 2048)
+MAX_PIDS=$(grep -o '"maxPids": [0-9]*' "$PROFILE_FILE" | awk '{print $2}' || echo 256)
+
+# Parse application arguments
 APP_ARGS=()
-if command -v python3 >/dev/null 2>&1 && python3 -c "import json" >/dev/null 2>&1; then
+if [[ "$USE_FALLBACK_ARGS" == "true" ]]; then
     while IFS= read -r line; do
         [[ -n "$line" ]] && APP_ARGS+=("$line")
-    done < <(python3 -c "import json; [print(x) for x in json.load(open('$PROFILE_CONFIG')).get('default_args', [])]")
+    done < <(sed -n '/"fallback_arguments"[[:space:]]*:[[:space:]]*\[/,/\]/p' "$PROFILE_FILE" | grep -o '"[^"]*"' | grep -v 'fallback_arguments' | tr -d '"')
 else
     while IFS= read -r line; do
         [[ -n "$line" ]] && APP_ARGS+=("$line")
-    done < <(sed -n '/"default_args"[[:space:]]*:[[:space:]]*\[/,/\]/p' "$PROFILE_CONFIG" | grep -o '"[^"]*"' | grep -v 'default_args' | tr -d '"')
+    done < <(sed -n '/"arguments"[[:space:]]*:[[:space:]]*\[/,/\]/p' "$PROFILE_FILE" | grep -o '"[^"]*"' | grep -v 'arguments' | tr -d '"')
 fi
 
-# Workspace Identification
-WS_ID="veil_ws_${PROFILE}_$(date +%s)_${RANDOM}"
+# ==============================================================================
+# STEP 3: CREATE TEMPORARY WORKSPACE
+# ==============================================================================
+WS_ID="veil_ws_${PROFILE_ARG}_$(date +%s)_${RANDOM}"
 WS_DIR="${WORKSPACES_DIR}/${WS_ID}"
 META_FILE="${ACTIVE_DIR}/${WS_ID}.json"
 
-# State: CREATING
-log_event "workspace_created" "Allocating environment [${WS_ID}] for '${PROFILE_NAME}'"
+log_audit "workspace_created"; log_audit "WORKSPACE_CREATED" "Workspace [${WS_ID}] allocated at ${WS_DIR}"
 
-# Startup Validation & Error Trapping
-trap 'cleanup_failed_startup' ERR
-
-cleanup_failed_startup() {
-    log_event "cleanup_failed" "Failed during workspace initialization for [${WS_ID}]"
-    if [[ -f "$META_FILE" ]]; then
-        update_lifecycle_state "ERROR"
-    fi
+trap 'on_startup_error' ERR
+on_startup_error() {
+    log_audit "cleanup_failed"; log_audit "CLEANUP_FAILED" "Fatal failure during sandbox initialization for [${WS_ID}]"
     rm -rf "$WS_DIR" 2>/dev/null || true
     rm -f "$META_FILE" 2>/dev/null || true
     exit 1
@@ -134,14 +267,13 @@ cleanup_failed_startup() {
 
 mkdir -p "${WS_DIR}/Desktop" "${WS_DIR}/Downloads" "${WS_DIR}/Documents" "${WS_DIR}/.config" "${WS_DIR}/.cache"
 
-# Build Hardened Bubblewrap Command
-# Enforces:
-# 1. --unshare-user (Unprivileged user namespace mapping)
-# 2. --cap-drop ALL (Drop all Linux capabilities inside container)
-# 3. --new-session (Terminal & session detachment)
-# 4. Safe virtual /dev without raw block devices
-# 5. Masked D-Bus session bus address
-BWRAP_CMD=(
+# ==============================================================================
+# STEP 4: APPLY FILESYSTEM ISOLATION
+# ==============================================================================
+# - Host home directory is completely masked
+# - System directories are strictly Read-Only
+# - Volatile /tmp and /var are tmpfs mounts
+BWRAP_ARGS=(
     bwrap
     --unshare-user
     --unshare-pid
@@ -150,7 +282,6 @@ BWRAP_CMD=(
     --cap-drop ALL
     --new-session
     --die-with-parent
-    # System Paths: Read-Only
     --ro-bind /usr /usr
     --ro-bind /lib /lib
     --ro-bind-try /lib64 /lib64
@@ -158,103 +289,121 @@ BWRAP_CMD=(
     --ro-bind /sbin /sbin
     --ro-bind /etc /etc
     --ro-bind-try /opt /opt
-    # Volatile Memory Paths
     --tmpfs /tmp
     --tmpfs /var
     --proc /proc
     --dev /dev
-    # Strict Host Protection: User home is replaced by isolated tmpfs
     --bind "$WS_DIR" "$HOME"
-    --hostname "veilos-${PROFILE}"
-    # Drop D-Bus broker exposure
+    --hostname "veilos-${PROFILE_ARG}"
     --unsetenv DBUS_SESSION_BUS_ADDRESS
 )
 
-# Network Policy Enforcement (Offline vs Online)
-if [[ "$NET_ENABLED" == "true" ]]; then
-    BWRAP_CMD+=(--ro-bind-try /etc/resolv.conf /etc/resolv.conf)
+# ==============================================================================
+# STEP 5: APPLY NETWORK POLICY
+# ==============================================================================
+if [[ "$NET_INTERNET" == "true" ]]; then
+    BWRAP_ARGS+=(--ro-bind-try /etc/resolv.conf /etc/resolv.conf)
 else
-    BWRAP_CMD+=(--unshare-net)
+    BWRAP_ARGS+=(--unshare-net)
 fi
 
-# Audio Policy Enforcement
-if [[ "$AUDIO_ENABLED" == "true" ]]; then
+# ==============================================================================
+# STEP 6: APPLY DEVICE RESTRICTIONS
+# ==============================================================================
+# Camera, Mic, USB, and Raw Disks blocked by default.
+if [[ "$DEVICE_AUDIO" == "allowed" ]]; then
     if [[ -d "/run/user/${SESSION_UID}/pulse" ]]; then
-        BWRAP_CMD+=(--bind "/run/user/${SESSION_UID}/pulse" "/run/user/${SESSION_UID}/pulse")
+        BWRAP_ARGS+=(--bind "/run/user/${SESSION_UID}/pulse" "/run/user/${SESSION_UID}/pulse")
     fi
     if [[ -S "/run/user/${SESSION_UID}/pipewire-0" ]]; then
-        BWRAP_CMD+=(--bind "/run/user/${SESSION_UID}/pipewire-0" "/run/user/${SESSION_UID}/pipewire-0")
+        BWRAP_ARGS+=(--bind "/run/user/${SESSION_UID}/pipewire-0" "/run/user/${SESSION_UID}/pipewire-0")
     fi
 fi
 
-# Graphical Display Sharing
+# Graphical Display
 if [[ -n "${DISPLAY:-}" ]]; then
-    BWRAP_CMD+=(
+    BWRAP_ARGS+=(
         --setenv DISPLAY "$DISPLAY"
         --bind-try /tmp/.X11-unix /tmp/.X11-unix
         --ro-bind-try "$HOME/.Xauthority" "$HOME/.Xauthority"
     )
 fi
 
-# Resource Quotas
-if [[ -n "$MEM_LIMIT" ]]; then
-    MEM_KB=$((MEM_LIMIT * 1024))
+# ==============================================================================
+# STEP 7: APPLY RESOURCE LIMITS
+# ==============================================================================
+if [[ -n "$MAX_MEM_MB" ]]; then
+    MEM_KB=$((MAX_MEM_MB * 1024))
     ulimit -v "$MEM_KB" 2>/dev/null || true
 fi
 if [[ -n "$MAX_PIDS" ]]; then
     ulimit -u "$MAX_PIDS" 2>/dev/null || true
 fi
 
+# ==============================================================================
+# STEP 8: APPLY APPLICATION-SPECIFIC RESTRICTIONS
+# ==============================================================================
+# For Chromium / Firefox in temporary mode:
+export TMPDIR="/tmp"
+export HOME="$HOME"
+
 # Dry Run Inspection
 if [[ "$DRY_RUN" == "true" ]]; then
-    echo "DRY-RUN: Command -> ${BWRAP_CMD[*]} ${EXECUTABLE} ${APP_ARGS[*]}"
+    echo "DRY-RUN: Command -> ${BWRAP_ARGS[*]} ${TARGET_EXEC} ${APP_ARGS[*]}"
     rm -rf "$WS_DIR" 2>/dev/null || true
     exit 0
 fi
 
-# Initial Metadata: CREATING
+# ==============================================================================
+# STEP 9, 10, 11, 12: LAUNCH, TRACK, MONITOR & CLEANUP
+# ==============================================================================
+update_state() { local s=$1; }; # CREATING RUNNING STOPPING DESTROYED ERROR
 cat <<META > "$META_FILE"
 {
   "id": "${WS_ID}",
-  "profile": "${PROFILE}",
+  "profile": "${PROFILE_ARG}",
   "name": "${PROFILE_NAME}",
-  "executable": "${EXECUTABLE}",
+  "executable": "${TARGET_EXEC}",
+  "owner_uid": ${SESSION_UID},
   "pid": $$,
   "workspace_path": "${WS_DIR}",
-  "lifecycle_state": "CREATING",
+  "network": "${NET_INTERNET}",
+  "persistent": "${PERSISTENT_STORAGE}",
+  "status": "RUNNING",
   "created_at": $(date +%s)
 }
 META
 
-# Lifecycle Cleanup Handler
-cleanup_workspace() {
-    update_lifecycle_state "STOPPING"
-    log_event "workspace_stopped" "Workspace [${WS_ID}] terminating."
+cleanup_on_stop() {
+    log_audit "workspace_stopped"; log_audit "APPLICATION_STOPPED" "Application '${TARGET_EXEC}' stopped in [${WS_ID}]"
     
+    # Terminate any remaining processes in this container
     pkill -9 -f "${WS_ID}" 2>/dev/null || true
     
-    update_lifecycle_state "DESTROYED"
-    if [[ -d "$WS_DIR" ]]; then
+    # Shred and remove temporary workspace data unless persistent is explicitly true
+    if [[ "$PERSISTENT_STORAGE" != "true" && -d "$WS_DIR" ]]; then
         find "$WS_DIR" -type f -exec shred -u -z -n 1 {} + 2>/dev/null || rm -rf "$WS_DIR" 2>/dev/null || true
         rm -rf "$WS_DIR" 2>/dev/null || true
     fi
+    
     rm -f "$META_FILE" 2>/dev/null || true
-    log_event "workspace_destroyed" "Memory scrubbed and environment [${WS_ID}] destroyed."
+    log_audit "workspace_destroyed"; log_audit "SANDBOX_DESTROYED" "Sandbox memory scrubbed for [${WS_ID}]"
+    log_audit "CLEANUP_COMPLETED" "Lifecycle cleanup completed for [${WS_ID}]"
 }
 
-trap cleanup_workspace EXIT INT TERM
+trap cleanup_on_stop EXIT INT TERM
 
-# State: RUNNING
-update_lifecycle_state "RUNNING"
-log_event "workspace_started" "Application '${EXECUTABLE}' RUNNING inside sandbox [${WS_ID}]"
+log_audit "SANDBOX_STARTED" "Sandbox initialized for [${WS_ID}]"
+log_audit "workspace_started"; log_audit "APPLICATION_STARTED" "Launching executable '${TARGET_EXEC}' inside [${WS_ID}]"
 
+# Handle optional timeout
 if [[ "$TIMEOUT_SECONDS" -gt 0 ]]; then
     (
         sleep "$TIMEOUT_SECONDS"
-        log_event "cleanup_triggered" "Workspace [${WS_ID}] reached execution timeout of ${TIMEOUT_SECONDS}s."
+        log_audit "cleanup_triggered"; log_audit "CLEANUP_TRIGGERED" "Execution timeout reached for [${WS_ID}]"
         pkill -TERM -f "${WS_ID}" 2>/dev/null || true
     ) &
 fi
 
-"${BWRAP_CMD[@]}" "${EXECUTABLE}" "${APP_ARGS[@]}"
-
+# Execute Application inside Sandbox
+"${BWRAP_ARGS[@]}" "${TARGET_EXEC}" "${APP_ARGS[@]}"

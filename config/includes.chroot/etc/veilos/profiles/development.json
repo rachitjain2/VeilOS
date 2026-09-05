@@ -1,43 +1,68 @@
 {
+  "id": "development",
   "profile_id": "development",
-  "name": "DEVELOPER WORKSPACE",
-  "badge": "DEV ENVIRONMENT",
-  "description": "Code inside a disposable environment.",
-  "toolchain_display": [
-    "Node.js ✓",
-    "Python ✓",
-    "Git ✓",
-    "npm ✓",
-    "pip ✓"
-  ],
+  "name": "Developer Workspace",
+  "description": "Code inside a disposable environment with isolated tools and package managers.",
+  "application": "Code Editor & Ephemeral Terminal",
   "executable": "/usr/local/bin/veilos-dev-starter",
+  "arguments": [],
   "default_args": [],
+  "filesystemPolicy": {
+    "hostFiles": false,
+    "temporaryHome": true,
+    "readOnlySystem": true,
+    "allowFonts": true,
+    "allowTmp": true,
+    "bindMounts": []
+  },
   "filesystem_policy": {
     "root_access": "read-only",
     "user_home": "isolated-tmpfs",
     "block_host_files": true,
     "allow_system_fonts": true,
-    "allow_tmp": true,
-    "writable_npm_cache": true,
-    "writable_pip_cache": true
+    "allow_tmp": true
+  },
+  "networkPolicy": {
+    "internet": true,
+    "dns": "system"
   },
   "network_policy": {
     "enabled": true,
-    "configurable": true,
     "dns": "system"
   },
-  "storage_policy": {
-    "persistent_storage": false,
-    "vault_access": false
+  "devicePolicy": {
+    "camera": "blocked",
+    "microphone": "blocked",
+    "usb": "blocked",
+    "audio": "blocked",
+    "hostDevices": "blocked"
   },
   "device_policy": {
     "audio": false,
     "camera": false,
     "microphone": false
   },
+  "storagePolicy": {
+    "persistent": false,
+    "vaultAccess": false
+  },
+  "storage_policy": {
+    "persistent_storage": false,
+    "vault_access": false
+  },
+  "resourceLimits": {
+    "maxCpuCores": 2,
+    "maxMemoryMb": 4096,
+    "maxPids": 1024,
+    "maxStorageMb": 4096
+  },
   "resource_policy": {
     "memory_limit_mb": 4096,
     "cpu_quota_percent": 95,
     "max_pids": 1024
+  },
+  "cleanupPolicy": {
+    "autoPurgeOnExit": true,
+    "shredVolatileMemory": true
   }
 }
