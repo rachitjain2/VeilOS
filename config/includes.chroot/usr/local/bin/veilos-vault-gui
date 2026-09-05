@@ -1,57 +1,255 @@
-#!/bin/bash
-# ==============================================================================
-# VEILOS Secure Vault GUI (veilos-vault-gui)
-# Creates and unlocks LUKS encrypted persistent containers
-# ==============================================================================
+#!/usr/bin/env python3
+"""
+VEILOS Secure Vault Management Interface
+Explicit, controlled persistent storage with clear visual state indication.
+"""
 
-set -euo pipefail
+import os
+import sys
+import subprocess
+import gi
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk, Gdk, GLib
 
-MOUNT_POINT="/media/veilos-vault"
+CSS_PATH = "/usr/share/veilos/dashboard/css/style.css"
+VAULT_SERVICE = "/usr/local/bin/veilos-vault-service"
 
-ACTION=$(yad --title="VEILOS Secure Vault" \
-    --window-icon="/usr/share/veilos/branding/veilos-logo.svg" \
-    --width=450 --height=250 --center \
-    --text="<big><b>VEILOS Secure Vault</b></big>\n\nManage encrypted persistent storage (dm-crypt/LUKS).\nDisposable sandboxes cannot see this vault unless explicitly shared." \
-    --button="Unlock Existing Vault:1" \
-    --button="Create New Vault File:2" \
-    --button="Lock & Unmount:3" \
-    --button="Cancel:0")
+class VeilosVaultWindow(Gtk.Window):
+    def __init__(self):
+        super().__init__(title="VEILOS Secure Vault")
+        self.set_default_size(540, 480)
+        self.set_position(Gtk.WindowPosition.CENTER)
+        self.set_resizable(False)
+        self.get_style_context().add_class("veilos-window")
 
-CHOICE=$?
+        self.apply_css()
 
-if [[ $CHOICE -eq 1 ]]; then
-    DEV_PATH=$(yad --file --title="Select LUKS Encrypted Vault Container / Device")
-    if [[ -n "$DEV_PATH" ]]; then
-        PASS=$(yad --entry --title="Unlock Vault" --text="Enter Vault Passphrase:" --hide-text)
-        if [[ -n "$PASS" ]]; then
-            sudo mkdir -p "$MOUNT_POINT"
-            echo -n "$PASS" | sudo cryptsetup luksOpen "$DEV_PATH" veilos_vault_active -
-            sudo mount /dev/mapper/veilos_vault_active "$MOUNT_POINT"
-            sudo chown -R veilos:veilos "$MOUNT_POINT"
-            notify-send "VEILOS Vault" "Encrypted Vault successfully mounted to $MOUNT_POINT"
-            thunar "$MOUNT_POINT" &
-        fi
-    fi
-elif [[ $CHOICE -eq 2 ]]; then
-    SAVE_PATH=$(yad --file --save --title="Choose Location for New Vault Image" --filename="veilos-vault.img")
-    if [[ -n "$SAVE_PATH" ]]; then
-        SIZE_MB=$(yad --entry --title="Vault Size" --text="Enter size in Megabytes (e.g. 512):" --entry-text="512")
-        PASS=$(yad --entry --title="Set Vault Passphrase" --text="Enter strong passphrase:" --hide-text)
-        if [[ -n "$SIZE_MB" && -n "$PASS" ]]; then
-            dd if=/dev/urandom of="$SAVE_PATH" bs=1M count="$SIZE_MB" status=progress
-            echo -n "$PASS" | sudo cryptsetup luksFormat --type luks2 "$SAVE_PATH" -
-            echo -n "$PASS" | sudo cryptsetup luksOpen "$SAVE_PATH" veilos_vault_temp -
-            sudo mkfs.ext4 -L "VEILOS_VAULT" /dev/mapper/veilos_vault_temp
-            sudo cryptsetup luksClose veilos_vault_temp
-            notify-send "VEILOS Vault" "New encrypted vault created: $SAVE_PATH"
-        fi
-    fi
-elif [[ $CHOICE -eq 3 ]]; then
-    if mountpoint -q "$MOUNT_POINT"; then
-        sudo umount "$MOUNT_POINT" || true
-    fi
-    if [[ -e /dev/mapper/veilos_vault_active ]]; then
-        sudo cryptsetup luksClose veilos_vault_active || true
-    fi
-    notify-send "VEILOS Vault" "Vault safely locked and unmounted."
-fi
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        main_box.set_margin_top(24)
+        main_box.set_margin_bottom(24)
+        main_box.set_margin_start(28)
+        main_box.set_margin_end(28)
+        self.add(main_box)
+
+        # Header
+        title = Gtk.Label(label="SECURE VAULT")
+        title.get_style_context().add_class("title-veil")
+        main_box.pack_start(title, False, False, 0)
+
+        subtitle = Gtk.Label(label="ENCRYPTED CONTROLLED PERSISTENCE")
+        subtitle.get_style_context().add_class("subtitle-veil")
+        main_box.pack_start(subtitle, False, False, 0)
+
+        # Status Display Box
+        self.status_frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.status_frame.get_style_context().add_class("status-container")
+        
+        lbl_status_head = Gtk.Label(label="CURRENT STATE")
+        lbl_status_head.get_style_context().add_class("status-label")
+        self.status_frame.pack_start(lbl_status_head, False, False, 0)
+
+        self.lbl_status_val = Gtk.Label(label="🔒 LOCKED")
+        self.lbl_status_val.get_style_context().add_class("title-veil")
+        self.status_frame.pack_start(self.lbl_status_val, False, False, 0)
+
+        self.lbl_notice = Gtk.Label(label="Persistent storage is unmounted and locked.")
+        self.lbl_notice.get_style_context().add_class("btn-desc")
+        self.status_frame.pack_start(self.lbl_notice, False, False, 0)
+
+        main_box.pack_start(self.status_frame, False, False, 0)
+
+        # Dynamic Action Area
+        self.action_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        main_box.pack_start(self.action_box, True, True, 0)
+
+        # Bottom Close Button
+        btn_close = Gtk.Button(label="Close Vault Window")
+        btn_close.get_style_context().add_class("fallback-btn")
+        btn_close.connect("clicked", lambda w: self.destroy())
+        main_box.pack_start(btn_close, False, False, 0)
+
+        self.refresh_ui()
+
+    def apply_css(self):
+        if os.path.exists(CSS_PATH):
+            css_provider = Gtk.CssProvider()
+            css_provider.load_from_path(CSS_PATH)
+            screen = Gdk.Screen.get_default()
+            Gtk.StyleContext.add_provider_for_screen(screen, css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+    def is_unlocked(self):
+        try:
+            res = subprocess.check_output([VAULT_SERVICE, "status"], text=True).strip()
+            return res == "UNLOCKED"
+        except Exception:
+            return False
+
+    def refresh_ui(self):
+        # Clear action box
+        for child in self.action_box.get_children():
+            self.action_box.remove(child)
+
+        unlocked = self.is_unlocked()
+        if unlocked:
+            self.lbl_status_val.set_text("🔓 UNLOCKED")
+            self.lbl_status_val.override_color(Gtk.StateFlags.NORMAL, Gdk.RGBA(0.2, 0.8, 0.4, 1.0))
+            self.lbl_notice.set_text("Only explicitly selected data is persistent.")
+
+            # Browse Vault Files
+            btn_browse = Gtk.Button(label="Open Vault in File Manager")
+            btn_browse.get_style_context().add_class("action-btn")
+            btn_browse.connect("clicked", lambda w: subprocess.Popen(["thunar", "/media/veilos-vault"]))
+            self.action_box.pack_start(btn_browse, False, False, 0)
+
+            # Lock Button
+            btn_lock = Gtk.Button(label="[ LOCK VAULT ]")
+            btn_lock.get_style_context().add_class("danger-btn")
+            btn_lock.connect("clicked", self.on_lock_clicked)
+            self.action_box.pack_start(btn_lock, False, False, 0)
+        else:
+            self.lbl_status_val.set_text("🔒 LOCKED")
+            self.lbl_status_val.override_color(Gtk.StateFlags.NORMAL, Gdk.RGBA(0.9, 0.4, 0.4, 1.0))
+            self.lbl_notice.set_text("Persistent storage is encrypted and unmounted.")
+
+            # [ UNLOCK VAULT ]
+            btn_unlock = Gtk.Button(label="[ UNLOCK VAULT ]")
+            btn_unlock.get_style_context().add_class("action-btn")
+            btn_unlock.connect("clicked", self.on_unlock_clicked)
+            self.action_box.pack_start(btn_unlock, False, False, 0)
+
+            # Create Vault
+            btn_create = Gtk.Button(label="Create New Encrypted Container (.img)")
+            btn_create.get_style_context().add_class("fallback-btn")
+            btn_create.connect("clicked", self.on_create_clicked)
+            self.action_box.pack_start(btn_create, False, False, 0)
+
+        self.action_box.show_all()
+
+    def on_unlock_clicked(self, widget):
+        file_dialog = Gtk.FileChooserDialog(
+            title="Select LUKS Encrypted Vault Container / Device",
+            parent=self,
+            action=Gtk.FileChooserAction.OPEN
+        )
+        file_dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        file_dialog.add_button("Select Device", Gtk.ResponseType.OK)
+        
+        response = file_dialog.run()
+        selected_file = file_dialog.get_filename()
+        file_dialog.destroy()
+
+        if response == Gtk.ResponseType.OK and selected_file:
+            pass_dialog = Gtk.Dialog(title="Enter Vault Passphrase", parent=self, flags=0)
+            pass_dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+            pass_dialog.add_button("Unlock", Gtk.ResponseType.OK)
+
+            box = pass_dialog.get_content_area()
+            box.set_margin_top(12)
+            box.set_margin_start(12)
+            box.set_margin_end(12)
+            lbl = Gtk.Label(label="Passphrase for LUKS volume:")
+            box.pack_start(lbl, False, False, 4)
+            entry = Gtk.Entry()
+            entry.set_visibility(False)
+            box.pack_start(entry, False, False, 4)
+            pass_dialog.show_all()
+
+            resp = pass_dialog.run()
+            passphrase = entry.get_text()
+            pass_dialog.destroy()
+
+            if resp == Gtk.ResponseType.OK and passphrase:
+                try:
+                    subprocess.run([VAULT_SERVICE, "unlock", selected_file, passphrase], check=True)
+                    self.refresh_ui()
+                except subprocess.CalledProcessError:
+                    err_dialog = Gtk.MessageDialog(
+                        transient_for=self,
+                        flags=0,
+                        message_type=Gtk.MessageType.ERROR,
+                        buttons=Gtk.ButtonsType.OK,
+                        text="Failed to Unlock Vault"
+                    )
+                    err_dialog.format_secondary_text("Incorrect passphrase or corrupt LUKS container.")
+                    err_dialog.run()
+                    err_dialog.destroy()
+
+    def on_lock_clicked(self, widget):
+        subprocess.run([VAULT_SERVICE, "lock"], check=False)
+        self.refresh_ui()
+
+    def on_create_clicked(self, widget):
+        file_dialog = Gtk.FileChooserDialog(
+            title="Choose Location for New Encrypted Vault Image",
+            parent=self,
+            action=Gtk.FileChooserAction.SAVE
+        )
+        file_dialog.set_current_name("veilos-vault.img")
+        file_dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        file_dialog.add_button("Create", Gtk.ResponseType.OK)
+
+        response = file_dialog.run()
+        target_path = file_dialog.get_filename()
+        file_dialog.destroy()
+
+        if response == Gtk.ResponseType.OK and target_path:
+            pass_dialog = Gtk.Dialog(title="Set Passphrase & Size", parent=self, flags=0)
+            pass_dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+            pass_dialog.add_button("Format Container", Gtk.ResponseType.OK)
+
+            box = pass_dialog.get_content_area()
+            box.set_margin_start(12)
+            box.set_margin_end(12)
+            box.set_margin_top(12)
+
+            lbl_sz = Gtk.Label(label="Size (MB):")
+            box.pack_start(lbl_sz, False, False, 2)
+            entry_sz = Gtk.Entry()
+            entry_sz.set_text("512")
+            box.pack_start(entry_sz, False, False, 2)
+
+            lbl_pass = Gtk.Label(label="Enter Passphrase:")
+            box.pack_start(lbl_pass, False, False, 2)
+            entry_pass = Gtk.Entry()
+            entry_pass.set_visibility(False)
+            box.pack_start(entry_pass, False, False, 2)
+
+            pass_dialog.show_all()
+            resp = pass_dialog.run()
+            sz = entry_sz.get_text()
+            pwd = entry_pass.get_text()
+            pass_dialog.destroy()
+
+            if resp == Gtk.ResponseType.OK and sz and pwd:
+                try:
+                    subprocess.run([VAULT_SERVICE, "create", target_path, sz, pwd], check=True)
+                    info = Gtk.MessageDialog(
+                        transient_for=self,
+                        flags=0,
+                        message_type=Gtk.MessageType.INFO,
+                        buttons=Gtk.ButtonsType.OK,
+                        text="Vault Created Successfully"
+                    )
+                    info.format_secondary_text(f"New LUKS container initialized at {target_path}.\nYou can now click [ UNLOCK VAULT ] to mount it.")
+                    info.run()
+                    info.destroy()
+                except Exception as e:
+                    err = Gtk.MessageDialog(
+                        transient_for=self,
+                        flags=0,
+                        message_type=Gtk.MessageType.ERROR,
+                        buttons=Gtk.ButtonsType.OK,
+                        text="Creation Failed"
+                    )
+                    err.format_secondary_text(str(e))
+                    err.run()
+                    err.destroy()
+
+def main():
+    win = VeilosVaultWindow()
+    win.connect("destroy", Gtk.main_quit)
+    win.show_all()
+    Gtk.main()
+
+if __name__ == "__main__":
+    main()

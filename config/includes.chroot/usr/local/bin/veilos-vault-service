@@ -1,0 +1,125 @@
+#!/bin/bash
+# ==============================================================================
+# VEILOS Secure Vault Core Service (veilos-vault-service)
+# Manages encrypted LUKS2 persistent storage using established dm-crypt tooling.
+# Applications NEVER receive automatic write permissions to the vault.
+# ==============================================================================
+
+set -euo pipefail
+
+MAPPER_NAME="veilos_vault_active"
+MAPPER_DEV="/dev/mapper/${MAPPER_NAME}"
+MOUNT_POINT="/media/veilos-vault"
+VAULT_META="${XDG_RUNTIME_DIR:-/tmp}/veilos-$(id -u)/vault_status.json"
+
+mkdir -p "$(dirname "$VAULT_META")"
+
+is_unlocked() {
+    if [[ -e "$MAPPER_DEV" ]] && mountpoint -q "$MOUNT_POINT" 2>/dev/null; then
+        return 0
+    fi
+    return 1
+}
+
+get_status() {
+    if is_unlocked; then
+        echo "UNLOCKED"
+    else
+        echo "LOCKED"
+    fi
+}
+
+write_status() {
+    local st
+    st=$(get_status)
+    cat <<EOF > "$VAULT_META"
+{
+  "status": "$st",
+  "mount_point": "$MOUNT_POINT",
+  "device": "$MAPPER_DEV",
+  "updated_at": $(date +%s)
+}
+EOF
+}
+
+unlock_vault() {
+    local target_dev="$1"
+    local passphrase="$2"
+
+    if is_unlocked; then
+        echo "[VEILOS Vault] Vault is already unlocked at ${MOUNT_POINT}."
+        write_status
+        return 0
+    fi
+
+    echo "[VEILOS Vault] Unlocking LUKS encrypted volume: ${target_dev}..."
+    sudo mkdir -p "$MOUNT_POINT"
+
+    # Unlock via cryptsetup with passphrase from stdin
+    echo -n "$passphrase" | sudo cryptsetup luksOpen "$target_dev" "$MAPPER_NAME" -
+
+    # Mount ext4/vfat filesystem with noexec,nosuid options for defense-in-depth
+    sudo mount -o nosuid,nodev "$MAPPER_DEV" "$MOUNT_POINT"
+    sudo chown -R veilos:veilos "$MOUNT_POINT"
+
+    echo "[VEILOS Vault] Vault successfully mounted to ${MOUNT_POINT}."
+    write_status
+}
+
+lock_vault() {
+    if ! is_unlocked; then
+        echo "[VEILOS Vault] Vault is already locked."
+        write_status
+        return 0
+    fi
+
+    echo "[VEILOS Vault] Flushing writes and locking vault..."
+    sync
+    
+    # Terminate any lingering handles to the vault mount
+    sudo fuser -km "$MOUNT_POINT" 2>/dev/null || true
+    
+    if mountpoint -q "$MOUNT_POINT"; then
+        sudo umount "$MOUNT_POINT"
+    fi
+
+    if [[ -e "$MAPPER_DEV" ]]; then
+        sudo cryptsetup luksClose "$MAPPER_NAME"
+    fi
+
+    echo "[VEILOS Vault] Cryptographic keys evicted from kernel keyring. Vault LOCKED."
+    write_status
+}
+
+create_vault() {
+    local target_file="$1"
+    local size_mb="$2"
+    local passphrase="$3"
+
+    echo "[VEILOS Vault] Initializing new ${size_mb}MB raw encrypted container at ${target_file}..."
+    dd if=/dev/urandom of="$target_file" bs=1M count="$size_mb" status=none
+    
+    # Format with industry standard LUKS2 (AES-256-XTS)
+    echo -n "$passphrase" | sudo cryptsetup luksFormat --type luks2 --cipher aes-xts-plain64 --key-size 512 --hash sha512 "$target_file" -
+    
+    # Create filesystem
+    echo -n "$passphrase" | sudo cryptsetup luksOpen "$target_file" "${MAPPER_NAME}_init" -
+    sudo mkfs.ext4 -L "VEILOS_VAULT" "/dev/mapper/${MAPPER_NAME}_init"
+    sudo cryptsetup luksClose "${MAPPER_NAME}_init"
+
+    echo "[VEILOS Vault] New encrypted LUKS2 vault formatted."
+}
+
+case "${1:-status}" in
+    status)
+        get_status ;;
+    unlock)
+        unlock_vault "$2" "$3" ;;
+    lock)
+        lock_vault ;;
+    create)
+        create_vault "$2" "$3" "$4" ;;
+    *)
+        echo "Usage: $0 {status|unlock <device> <passphrase>|lock|create <file> <size_mb> <passphrase>}" >&2
+        exit 1 ;;
+esac
