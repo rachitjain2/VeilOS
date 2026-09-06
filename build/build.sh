@@ -64,6 +64,16 @@ EOF
 chmod +x /usr/local/bin/isohybrid 2>/dev/null || true
 chmod +x "${ROOT_DIR}/config/includes.chroot/usr/local/bin/"* 2>/dev/null || true
 
+# Ensure syslinux and ISOLINUX paths are cross-linked for live-build
+if [ -d /usr/lib/ISOLINUX ] && [ ! -e /usr/lib/syslinux/isolinux.bin ]; then
+    mkdir -p /usr/lib/syslinux
+    cp -rn /usr/lib/ISOLINUX/* /usr/lib/syslinux/ 2>/dev/null || true
+fi
+if [ -d /usr/lib/syslinux ] && [ ! -e /usr/lib/ISOLINUX/isolinux.bin ]; then
+    mkdir -p /usr/lib/ISOLINUX
+    cp -rn /usr/lib/syslinux/* /usr/lib/ISOLINUX/ 2>/dev/null || true
+fi
+
 echo "[*] Cleaning previous build artifacts..."
 lb clean --purge || true
 
