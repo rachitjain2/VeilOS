@@ -17,7 +17,7 @@ echo "Root directory: ${ROOT_DIR}"
 echo "Output directory: ${OUTPUT_DIR}"
 
 # 1. Dependency checks
-REQUIRED_TOOLS=(lb debootstrap xorriso squashfs-tools mksquashfs)
+REQUIRED_TOOLS=(lb debootstrap xorriso mksquashfs)
 MISSING=()
 for tool in "${REQUIRED_TOOLS[@]}"; do
     if ! command -v "$tool" >/dev/null 2>&1; then
