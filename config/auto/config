@@ -21,7 +21,6 @@ lb config noauto \
     --linux-flavours amd64 \
     --bootloader syslinux,grub-efi \
     --binary-images iso-hybrid \
-    --image-name "veilos-live-amd64" \
     --iso-application "VEILOS Operating System" \
     --iso-preparer "VEILOS Project Team" \
     --iso-publisher "VEILOS Core Team" \
@@ -31,7 +30,6 @@ lb config noauto \
     --apt-recommends false \
     --apt-secure true \
     --security true \
-    --updates true \
     --backports false \
     --bootappend-live "boot=live components quiet splash hostname=VEILOS username=veilos live-config.timezone=Etc/UTC live-config.locales=en_US.UTF-8 live-config.keyboard-layouts=us noautomount" \
     "${@}"
