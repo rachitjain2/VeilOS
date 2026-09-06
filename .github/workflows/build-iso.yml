@@ -27,8 +27,9 @@ jobs:
             grub-efi-amd64-bin \
             mtools \
             rsync
-          echo "Patching host live-build to support Debian Bookworm security archive format..."
+          echo "Patching host live-build to support Debian Bookworm repository format..."
           sudo find /usr/lib/live/ /usr/share/live/ -type f -exec sed -i 's|/updates|-security|g' {} + 2>/dev/null || true
+          sudo find /usr/lib/live/ /usr/share/live/ -type f -exec sed -i 's|/Contents-|/main/Contents-|g' {} + 2>/dev/null || true
 
       - name: Run VEILOS ISO Builder
         run: |
