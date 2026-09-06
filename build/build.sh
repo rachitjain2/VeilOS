@@ -46,11 +46,11 @@ cd "${ROOT_DIR}"
 echo "[*] Ensuring live-build uses modern Debian repository structure..."
 if [ -d /usr/lib/live ]; then
     find /usr/lib/live -type f -exec sed -i 's|/updates|-security|g' {} + 2>/dev/null || true
-    find /usr/lib/live -type f -exec sed -i 's|/Contents-|/main/Contents-|g' {} + 2>/dev/null || true
+    find /usr/lib/live -type f -exec sed -i 's|/dists/\([^/]*\)/Contents-|/dists/\1/main/Contents-|g' {} + 2>/dev/null || true
 fi
 if [ -d /usr/share/live ]; then
     find /usr/share/live -type f -exec sed -i 's|/updates|-security|g' {} + 2>/dev/null || true
-    find /usr/share/live -type f -exec sed -i 's|/Contents-|/main/Contents-|g' {} + 2>/dev/null || true
+    find /usr/share/live -type f -exec sed -i 's|/dists/\([^/]*\)/Contents-|/dists/\1/main/Contents-|g' {} + 2>/dev/null || true
 fi
 
 echo "[*] Cleaning previous build artifacts..."
