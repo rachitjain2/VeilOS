@@ -19,7 +19,7 @@ lb config noauto \
     --architectures amd64 \
     --archive-areas "main contrib non-free-firmware" \
     --linux-flavours amd64 \
-    --bootloaders "syslinux,grub-efi" \
+    --bootloader syslinux \
     --binary-images iso-hybrid \
     --iso-application "VEILOS Operating System" \
     --iso-preparer "VEILOS Project Team" \
