@@ -57,6 +57,13 @@ fi
 chmod +x "${ROOT_DIR}/config/includes.chroot/usr/local/bin/"* 2>/dev/null || true
 chmod +x "${ROOT_DIR}/config/hooks/live/"* 2>/dev/null || true
 
+# sync-rsvg-wrapper
+# Ensure rsvg wrapper is available on host
+if command -v rsvg-convert >/dev/null 2>&1; then
+    ln -sf "$(command -v rsvg-convert)" /usr/local/bin/rsvg 2>/dev/null || true
+    ln -sf "$(command -v rsvg-convert)" /usr/bin/rsvg 2>/dev/null || true
+fi
+
 # 3. Cross-link host Syslinux & ISOLINUX libraries
 echo "[*] Setting up host Syslinux and ISOLINUX libraries..."
 mkdir -p /usr/lib/ISOLINUX /usr/lib/syslinux/modules/bios /usr/lib/syslinux
@@ -89,9 +96,19 @@ cp -f /usr/lib/syslinux/* /usr/share/live/build/bootloaders/syslinux_common/ 2>/
 # 5. Patch binary_syslinux to ensure chroot bootloader libraries exist before dereferencing
 if [ -f /usr/lib/live/build/binary_syslinux ]; then
     echo "[*] Patching binary_syslinux with chroot bootloader library synchronization..."
+    sed -i 's|/usr/bin/env rsvg |/usr/bin/env rsvg-convert |g' /usr/lib/live/build/binary_syslinux 2>/dev/null || true
+    sed -i 's|rsvg |rsvg-convert |g' /usr/lib/live/build/binary_syslinux 2>/dev/null || true
     if ! grep -q "sync-syslinux-chroot" /usr/lib/live/build/binary_syslinux; then
         sed -i '/Chroot chroot cp -aL \/root\/\${_BOOTLOADER}/i \
 # sync-syslinux-chroot\
+mkdir -p chroot/usr/bin chroot/usr/local/bin\
+if [ -x chroot/usr/bin/rsvg-convert ]; then\
+    ln -sf /usr/bin/rsvg-convert chroot/usr/bin/rsvg 2>/dev/null || true\
+    ln -sf /usr/bin/rsvg-convert chroot/usr/local/bin/rsvg 2>/dev/null || true\
+elif command -v rsvg-convert >/dev/null 2>&1; then\
+    cp -f "$(command -v rsvg-convert)" chroot/usr/bin/rsvg 2>/dev/null || true\
+    cp -f "$(command -v rsvg-convert)" chroot/usr/bin/rsvg-convert 2>/dev/null || true\
+fi\
 mkdir -p chroot/usr/lib/ISOLINUX chroot/usr/lib/syslinux/modules/bios chroot/usr/lib/syslinux\
 cp -rn /usr/lib/ISOLINUX/* chroot/usr/lib/ISOLINUX/ 2>/dev/null || true\
 cp -rn /usr/lib/syslinux/* chroot/usr/lib/syslinux/ 2>/dev/null || true\

@@ -28,7 +28,8 @@ jobs:
             grub-pc-bin \
             grub-efi-amd64-bin \
             mtools \
-            rsync
+            rsync \
+            librsvg2-bin
           echo "Patching host live-build to support Debian Bookworm repository format..."
           sudo find /usr/lib/live/ /usr/share/live/ -type f -exec sed -i 's|/updates|-security|g' {} + 2>/dev/null || true
           sudo find /usr/lib/live/ /usr/share/live/ -type f -exec sed -i 's|/dists/\([^/]*\)/Contents-|/dists/\1/main/Contents-|g' {} + 2>/dev/null || true
@@ -36,6 +37,8 @@ jobs:
           sudo cp -rn /usr/lib/ISOLINUX/* /usr/lib/syslinux/ 2>/dev/null || true
           sudo cp -rn /usr/lib/syslinux/* /usr/lib/ISOLINUX/ 2>/dev/null || true
           sudo cp -rn /usr/lib/syslinux/modules/bios/* /usr/lib/ISOLINUX/ 2>/dev/null || true
+          sudo ln -sf /usr/bin/rsvg-convert /usr/bin/rsvg 2>/dev/null || true
+          sudo ln -sf /usr/bin/rsvg-convert /usr/local/bin/rsvg 2>/dev/null || true
 
       - name: Run VEILOS ISO Builder
         run: |

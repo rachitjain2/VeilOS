@@ -1,0 +1,10 @@
+#!/bin/sh
+# VEILOS rsvg-convert compatibility wrapper for live-build
+if command -v rsvg-convert >/dev/null 2>&1; then
+    exec rsvg-convert "$@"
+elif [ -x /usr/bin/rsvg-convert ]; then
+    exec /usr/bin/rsvg-convert "$@"
+else
+    echo "Warning: rsvg-convert not found"
+    exit 0
+fi

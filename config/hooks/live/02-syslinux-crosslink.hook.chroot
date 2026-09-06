@@ -27,3 +27,9 @@ if [ -d /usr/lib/syslinux ]; then
 fi
 
 echo "=== [VEILOS Live Hook] Bootloader cross-linking complete ==="
+
+# Ensure rsvg wrapper exists in chroot for live-build splash rendering
+if command -v rsvg-convert >/dev/null 2>&1; then
+    ln -sf "$(command -v rsvg-convert)" /usr/bin/rsvg 2>/dev/null || true
+    ln -sf "$(command -v rsvg-convert)" /usr/local/bin/rsvg 2>/dev/null || true
+fi
