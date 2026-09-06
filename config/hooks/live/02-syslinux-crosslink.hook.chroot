@@ -26,10 +26,10 @@ if [ -d /usr/lib/syslinux ]; then
     cp -rn /usr/lib/syslinux/*.c32 /usr/lib/ISOLINUX/ 2>/dev/null || true
 fi
 
-echo "=== [VEILOS Live Hook] Bootloader cross-linking complete ==="
-
-# Ensure rsvg wrapper exists in chroot for live-build splash rendering
-if command -v rsvg-convert >/dev/null 2>&1; then
-    ln -sf "$(command -v rsvg-convert)" /usr/bin/rsvg 2>/dev/null || true
-    ln -sf "$(command -v rsvg-convert)" /usr/local/bin/rsvg 2>/dev/null || true
+# Ensure smart rsvg wrapper exists in chroot for live-build splash rendering
+if [ -f /usr/local/bin/rsvg ]; then
+    chmod +x /usr/local/bin/rsvg
+    cp -f /usr/local/bin/rsvg /usr/bin/rsvg 2>/dev/null || true
 fi
+
+echo "=== [VEILOS Live Hook] Bootloader cross-linking complete ==="

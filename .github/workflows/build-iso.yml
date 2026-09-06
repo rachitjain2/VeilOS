@@ -37,8 +37,9 @@ jobs:
           sudo cp -rn /usr/lib/ISOLINUX/* /usr/lib/syslinux/ 2>/dev/null || true
           sudo cp -rn /usr/lib/syslinux/* /usr/lib/ISOLINUX/ 2>/dev/null || true
           sudo cp -rn /usr/lib/syslinux/modules/bios/* /usr/lib/ISOLINUX/ 2>/dev/null || true
-          sudo ln -sf /usr/bin/rsvg-convert /usr/bin/rsvg 2>/dev/null || true
-          sudo ln -sf /usr/bin/rsvg-convert /usr/local/bin/rsvg 2>/dev/null || true
+          sudo cp -f config/includes.chroot/usr/local/bin/rsvg /usr/local/bin/rsvg 2>/dev/null || true
+          sudo cp -f config/includes.chroot/usr/local/bin/rsvg /usr/bin/rsvg 2>/dev/null || true
+          sudo chmod +x /usr/local/bin/rsvg /usr/bin/rsvg 2>/dev/null || true
 
       - name: Run VEILOS ISO Builder
         run: |

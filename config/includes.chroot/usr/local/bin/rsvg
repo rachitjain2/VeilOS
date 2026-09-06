@@ -1,10 +1,33 @@
-#!/bin/sh
+#!/bin/bash
 # VEILOS rsvg-convert compatibility wrapper for live-build
-if command -v rsvg-convert >/dev/null 2>&1; then
+# Converts legacy positional syntax: rsvg [flags] input.svg output.png
+# to modern: rsvg-convert [flags] input.svg -o output.png
+
+has_output=false
+for arg in "$@"; do
+    case "$arg" in
+        -o|--output|--output=*)
+            has_output=true
+            break
+            ;;
+    esac
+done
+
+if [ "$has_output" = "true" ]; then
     exec rsvg-convert "$@"
-elif [ -x /usr/bin/rsvg-convert ]; then
-    exec /usr/bin/rsvg-convert "$@"
-else
-    echo "Warning: rsvg-convert not found"
-    exit 0
 fi
+
+args=("$@")
+if [ ${#args[@]} -ge 2 ]; then
+    last_idx=$((${#args[@]} - 1))
+    last_arg="${args[$last_idx]}"
+
+    case "$last_arg" in
+        *.png|*.bmp|*.jpg|*.jpeg)
+            unset 'args[$last_idx]'
+            exec rsvg-convert "${args[@]}" -o "$last_arg"
+            ;;
+    esac
+fi
+
+exec rsvg-convert "$@"

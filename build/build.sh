@@ -53,16 +53,15 @@ if [ -d /usr/share/live ]; then
     find /usr/share/live -type f -exec sed -i 's|/dists/\([^/]*\)/Contents-|/dists/\1/main/Contents-|g' {} + 2>/dev/null || true
 fi
 
+# Install smart rsvg wrapper on host
+echo "[*] Installing smart rsvg compatibility wrapper on host..."
+cp -f "${ROOT_DIR}/config/includes.chroot/usr/local/bin/rsvg" /usr/local/bin/rsvg 2>/dev/null || true
+cp -f "${ROOT_DIR}/config/includes.chroot/usr/local/bin/rsvg" /usr/bin/rsvg 2>/dev/null || true
+chmod +x /usr/local/bin/rsvg /usr/bin/rsvg 2>/dev/null || true
+
 # Ensure executable permissions on all repository scripts
 chmod +x "${ROOT_DIR}/config/includes.chroot/usr/local/bin/"* 2>/dev/null || true
 chmod +x "${ROOT_DIR}/config/hooks/live/"* 2>/dev/null || true
-
-# sync-rsvg-wrapper
-# Ensure rsvg wrapper is available on host
-if command -v rsvg-convert >/dev/null 2>&1; then
-    ln -sf "$(command -v rsvg-convert)" /usr/local/bin/rsvg 2>/dev/null || true
-    ln -sf "$(command -v rsvg-convert)" /usr/bin/rsvg 2>/dev/null || true
-fi
 
 # 3. Cross-link host Syslinux & ISOLINUX libraries
 echo "[*] Setting up host Syslinux and ISOLINUX libraries..."
@@ -93,28 +92,30 @@ cp -f /usr/lib/syslinux/modules/bios/* /usr/share/live/build/bootloaders/syslinu
 cp -f /usr/lib/syslinux/* /usr/share/live/build/bootloaders/isolinux/ 2>/dev/null || true
 cp -f /usr/lib/syslinux/* /usr/share/live/build/bootloaders/syslinux_common/ 2>/dev/null || true
 
-# 5. Patch binary_syslinux to ensure chroot bootloader libraries exist before dereferencing
+# Pre-convert any splash.svg in template directories to splash.png to eliminate runtime SVG conversion
+for f in $(find /usr/share/live/build/bootloaders -name "splash.svg" 2>/dev/null); do
+    dir=$(dirname "$f")
+    if command -v rsvg-convert >/dev/null 2>&1; then
+        rsvg-convert --format png --width 640 --height 480 "$f" -o "$dir/splash.png" 2>/dev/null || true
+    fi
+    rm -f "$f"
+done
+
+# 5. Patch binary_syslinux to ensure chroot bootloader libraries and rsvg wrapper exist before dereferencing
 if [ -f /usr/lib/live/build/binary_syslinux ]; then
     echo "[*] Patching binary_syslinux with chroot bootloader library synchronization..."
-    sed -i 's|/usr/bin/env rsvg |/usr/bin/env rsvg-convert |g' /usr/lib/live/build/binary_syslinux 2>/dev/null || true
-    sed -i 's|rsvg |rsvg-convert |g' /usr/lib/live/build/binary_syslinux 2>/dev/null || true
     if ! grep -q "sync-syslinux-chroot" /usr/lib/live/build/binary_syslinux; then
         sed -i '/Chroot chroot cp -aL \/root\/\${_BOOTLOADER}/i \
 # sync-syslinux-chroot\
-mkdir -p chroot/usr/bin chroot/usr/local/bin\
-if [ -x chroot/usr/bin/rsvg-convert ]; then\
-    ln -sf /usr/bin/rsvg-convert chroot/usr/bin/rsvg 2>/dev/null || true\
-    ln -sf /usr/bin/rsvg-convert chroot/usr/local/bin/rsvg 2>/dev/null || true\
-elif command -v rsvg-convert >/dev/null 2>&1; then\
-    cp -f "$(command -v rsvg-convert)" chroot/usr/bin/rsvg 2>/dev/null || true\
-    cp -f "$(command -v rsvg-convert)" chroot/usr/bin/rsvg-convert 2>/dev/null || true\
-fi\
-mkdir -p chroot/usr/lib/ISOLINUX chroot/usr/lib/syslinux/modules/bios chroot/usr/lib/syslinux\
+mkdir -p chroot/usr/lib/ISOLINUX chroot/usr/lib/syslinux/modules/bios chroot/usr/lib/syslinux chroot/usr/bin chroot/usr/local/bin\
 cp -rn /usr/lib/ISOLINUX/* chroot/usr/lib/ISOLINUX/ 2>/dev/null || true\
 cp -rn /usr/lib/syslinux/* chroot/usr/lib/syslinux/ 2>/dev/null || true\
 cp -rn /usr/lib/syslinux/modules/bios/* chroot/usr/lib/syslinux/modules/bios/ 2>/dev/null || true\
 cp -rn /usr/lib/ISOLINUX/* chroot/usr/lib/syslinux/modules/bios/ 2>/dev/null || true\
-cp -rn /usr/lib/syslinux/modules/bios/* chroot/usr/lib/ISOLINUX/ 2>/dev/null || true' /usr/lib/live/build/binary_syslinux
+cp -rn /usr/lib/syslinux/modules/bios/* chroot/usr/lib/ISOLINUX/ 2>/dev/null || true\
+cp -f /usr/local/bin/rsvg chroot/usr/local/bin/rsvg 2>/dev/null || true\
+cp -f /usr/local/bin/rsvg chroot/usr/bin/rsvg 2>/dev/null || true\
+chmod +x chroot/usr/local/bin/rsvg chroot/usr/bin/rsvg 2>/dev/null || true' /usr/lib/live/build/binary_syslinux
     fi
 fi
 
