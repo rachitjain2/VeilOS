@@ -1,105 +1,168 @@
-# VEILOS — Disposable Computing Operating System
+# 🛡️ VEILOS — Disposable Computing Operating System
 
-> **Applications are guests, not owners.**
+[![Hackathon Edition](https://img.shields.io/badge/Edition-VEILOS--HACKATHON_v0.1-blueviolet?style=for-the-badge&logo=linux)](config/includes.chroot/etc/veilos/version.json)
+[![Kernel](https://img.shields.io/badge/Kernel-Debian_12_Bookworm_amd64-red?style=for-the-badge&logo=debian)](config/auto/config)
+[![Isolation Engine](https://img.shields.io/badge/Isolation-Bubblewrap_Namespaces-success?style=for-the-badge&logo=security)](config/includes.chroot/usr/local/bin/veil-run)
+[![Tests](https://img.shields.io/badge/Tests-15%2F15_Passing-brightgreen?style=for-the-badge&logo=checkmarx)](tests/run_all_tests.sh)
+[![Status](https://img.shields.io/badge/Security-Honest_&_Verified-orange?style=for-the-badge&logo=shield)](docs/security-model.md)
 
-VEILOS is a privacy-focused, amnesic Linux-based live operating system prototype designed around the paradigm of **Disposable Computing**.
-
----
-
-## The Vision
-
-Traditional operating systems treat applications as privileged co-owners of your device: once installed, applications can inspect your personal files, probe hardware peripherals, maintain permanent telemetry caches, and leave lingering artifacts across your filesystem.
-
-VEILOS flips this paradigm:
-* Applications launch into **ephemeral, isolated namespaces** in volatile RAM.
-* Applications receive **zero persistent storage by default**.
-* Access to personal files, webcam, microphone, and raw disks is **blocked**.
-* Preserving data requires an **explicit user action** to shuttle files into a LUKS2 encrypted **Secure Vault**.
-* Destroying a workspace or ending a session **overwrites and obliterates** temporary memory state.
+> **"What if applications were guests instead of owners?"**  
+> Traditional operating systems grant installed software persistent co-ownership over your personal storage, background sockets, and hardware peripherals.  
+> **VEILOS flips this paradigm.** Every computing session and every application is ephemeral by default: running in volatile RAM namespaces with zero host access, disposable by design, and erased with cryptographic shredding.
 
 ---
 
-## Core Desktop Subsystems
+## 👥 The Team Behind VEILOS
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    VEILOS MAIN DASHBOARD                    │
-│                     PRIVATE COMPUTING                       │
-├─────────────────────────────────────────────────────────────┤
-│ SESSION: ● TEMPORARY             NETWORK: ● PROTECTED       │
-│ PERSISTENCE: ● OFF (VOLATILE)    PRIVACY: ACTIVE (0 WS)     │
-├─────────────────────────────────────────────────────────────┤
-│  [ PRIVATE BROWSER ]         Firefox in ephemeral RAM       │
-│  [ DEVELOPER WORKSPACE ]     Node, Python, Git, npm, pip    │
-│  [ APP TESTING ]             Zero-trust offline sandbox     │
-│  [ SECURE VAULT ]            LUKS2 dm-crypt persistence     │
-│  [ PRIVACY CENTER ]          Live transparency audit        │
-│  [ END SESSION ]             Scrub memory & log out         │
-└─────────────────────────────────────────────────────────────┘
-```
-
-1. **Private Browser (`veil-run --profile private-browser`):** Isolated web browser running in memory with masked host files.
-2. **Developer Workspace (`veil-run --profile development`):** Ephemeral coding studio with Node.js, Python 3, Git, npm, pip, and gcc/g++, allowing package installs strictly inside the disposable workspace.
-3. **App Testing Sandbox (`veil-run --profile app-testing`):** Zero-trust offline jail with blocked camera, mic, USB, and 1024 MB RAM limits.
-4. **Secure Vault (`veilos-vault-gui`):** AES-256-XTS LUKS2 encrypted volume manager for explicit data preservation.
-5. **Privacy Center (`veilos-privacy-center`):** Honest security audit displaying `✓ ENFORCED` vs `◐ PARTIAL` status and "Why?" policy explanations.
-6. **Session Manager (`veil-session`):** Enforces temporary boot sessions and orchestrates complete RAM scrubbing on shutdown.
-7. **Lifecycle & Reaper (`veil-cleanup`):** Tracks state (`CREATING` → `RUNNING` → `STOPPING` → `DESTROYED`) and reaps orphaned sandboxes.
+| Name | Role | Responsibilities |
+| :--- | :--- | :--- |
+| **Rachit Jain** | 🛠️ **Lead Engineer** | Core OS Architecture, Sandbox Policy Engine (`veil-run`), Kernel Namespaces, ISO Build Pipeline |
+| **Bhumi Arora** | 📋 **Project Manager** | Product Roadmapping, Scope Governance, Hackathon Deliverables, Quality Assurance |
+| **Yash Singhal** | 🧪 **User Tester** | Security Edge-Case Audits, Multi-Workspace Isolation Testing, Penetration Verification |
+| **Prastuti Mushahary** | 🎨 **Lead Designer** | Desktop Interface, Privacy Center Visuals, UX Workflow, Proof-Oriented UI Components |
+| **Preet Kumar** | 🎤 **Presenter** | Product Storytelling, Judge Demonstrations, Value Proposition, Technical Q&A Pitching |
 
 ---
 
-## Reproducible ISO Build Pipeline
+## ✨ Core Philosophy: Disposable Computing
 
-The complete pipeline transforms source code into a bootable hybrid ISO:
+When you boot VEILOS from a USB drive or virtual machine:
+* 🧼 **Zero Installation on Host:** Runs 100% in RAM (`tmpfs`). Your Windows or Mac hard drive is never touched, mounted, or modified.
+* 🚫 **Host Filesystem Masking:** Personal files, configurations, and raw drives are completely unmounted and blocked from sandboxed applications.
+* ⚡ **Bare-Metal Hardware Speed:** Unlike resource-heavy virtual machines (10x overhead) or laggy cloud PCs, VEILOS utilizes native Linux kernel namespaces directly on bare metal.
+* 💥 **True Cryptographic Destruction:** STOP and DESTROY are distinct operations. Destroying a workspace kills child processes (`SIGTERM` + `SIGKILL`) and scrubs memory with `shred -u -z -n 1`.
+* 🔒 **Encrypted Persistence as an Exception:** If a user explicitly chooses to save a file, it is preserved in an AES-256-XTS LUKS encrypted **Secure Vault**.
+* 🔍 **Honest Security Transparency:** We never fake security. Known architectural limits (like X11 shared sockets) are transparently disclosed in our **Privacy Center**.
+
+---
+
+## 🖥️ System Architecture
 
 ```
-SOURCE CONFIGURATION ──► build.sh ──► VEILOS LIVE ISO ──► BOOT USB ──► DESKTOP
+                        VEILOS DESKTOP & LAUNCHER
+                                    │
+            ┌───────────────────────┼───────────────────────┐
+            ▼                       ▼                       ▼
+   🌐 Private Browser     💻 Developer Studio      🧪 App Testing Jail
+   (Chromium/Firefox)     (Node, Python, Git)     (Air-gapped Zero-Trust)
+            │                       │                       │
+            └───────────────────────┼───────────────────────┘
+                                    ▼
+                      APPLICATION PROFILES ENGINE
+                     (/etc/veilos/profiles/*.json)
+                                    │
+                                    ▼
+                       SANDBOX RUNTIME (veil-run)
+              ┌─────────────────────┴─────────────────────┐
+              ▼                                           ▼
+     LINUX KERNEL NAMESPACES                    VOLATILE TMPFS STORAGE
+  • User Namespace (--unshare-user)            • Ephemeral Home Directory
+  • PID Namespace  (--unshare-pid)             • Masked Host Filesystem
+  • IPC Namespace  (--unshare-ipc)             • Cryptographic Shredding
+  • UTS Namespace  (--unshare-uts)             • Zero Disk Artifacts
+  • Capabilities Dropped (--cap-drop ALL)      • Auto-Reaped by veil-cleanup
 ```
 
-### Quick Build (Debian 12, Ubuntu, or WSL2):
+---
+
+## 🚀 Predefined Environments
+
+### 1. 🌐 Private Browser
+* **Executable:** Chromium / Firefox ESR fallback.
+* **Policy:** Outbound internet ALLOWED, host files BLOCKED, camera/mic BLOCKED, cookies & cache VOLATILE.
+* **Launch:** `veil-run --profile private-browser`
+
+### 2. 💻 Developer Workspace
+* **Toolchain:** Node.js, Python 3, Git, npm, pip, build-essential (`gcc`, `g++`, `make`), Geany editor.
+* **Policy:** Ephemeral workspace in RAM; allows package installation (`npm install`, `pip install`) with zero pollution of the host system.
+* **Launch:** `veil-run --profile development`
+
+### 3. 🧪 App Testing Sandbox
+* **Policy:** Zero-trust jail; network completely air-gapped (`--unshare-net`), camera/mic/USB blocked, strict cgroup memory quotas.
+* **Launch:** `veil-run --profile app-testing`
+
+### 4. 🔐 Secure Vault
+* **Mechanism:** AES-256-XTS LUKS dm-crypt container for explicit user-selected persistent data.
+* **Launch:** `veilos-vault-gui`
+
+### 5. 🛡️ Privacy Center & Proof Screen
+* **Capabilities:** Real-time workspace telemetry, live duration counters, minimal audit log viewer, and honest security badges (`✓ ENFORCED`, `◐ PARTIAL`, `○ NOT IMPLEMENTED`).
+* **Launch:** `veilos-privacy-center`
+
+---
+
+## 🛠️ Verification & Test Suite
+
+VEILOS includes a comprehensive **15-suite automated test harness** verifying syntax, profiles, container boundaries, concurrency, and destruction proofs:
+
 ```bash
-# 1. Install build dependencies
-sudo apt-get update && sudo apt-get install -y \
-  live-build debootstrap xorriso squashfs-tools dosfstools \
-  isolinux syslinux-common grub-pc-bin grub-efi-amd64-bin mtools rsync
+# Run the master test runner (15/15 tests passing)
+./tests/run_all_tests.sh
 
-# 2. Build the ISO
+# Pre-flight diagnostic check
+veil-doctor
+
+# Pre-demo system check & safe preparation
+veil-hackathon-demo
+
+# 15-step primary demo smoke test
+./tests/demo-smoke-test.sh
+
+# Multi-workspace isolation & survivability test
+./tests/isolation-test.sh
+```
+
+---
+
+## 📦 Building the Bootable Live ISO
+
+VEILOS builds an official hybrid live ISO using Debian 12 `live-build`:
+
+```bash
+# 1. Install build tools (Debian / Ubuntu / WSL2)
+sudo apt-get update && sudo apt-get install -y \
+  live-build debootstrap xorriso squashfs-tools dosfstools isolinux mtools
+
+# 2. Trigger automated build
 sudo ./build.sh
 ```
 
-The resulting hybrid ISO is generated at:
-```
-output/veilos-live-amd64.iso
-output/veilos-live-amd64.iso.sha256
-```
-
-Detailed instructions for **Docker builds**, **GitHub Actions CI**, **QEMU virtual machine testing**, and **USB flashing** are documented in [docs/build.md](docs/build.md).
+The output image is produced at:  
+`output/veilos-live-amd64.iso` (and verified via `output/veilos-live-amd64.iso.sha256`)
 
 ---
 
-## Verification & Automated Test Suite
+## 💻 Testing in QEMU Virtual Machine
 
-VEILOS includes an automated test suite verifying all sandbox policies and security controls:
-
+Launch the ISO reproducibly using our launcher script:
 ```bash
-# Run all tests
-bash tests/test_syntax.sh
-bash tests/test_veil_run.sh
-bash tests/test_private_browser.sh
-bash tests/test_dev_workspace.sh
-bash tests/test_app_testing.sh
-bash tests/test_secure_vault.sh
-bash tests/test_privacy_center.sh
-bash tests/test_session_manager.sh
-bash tests/test_lifecycle_cleanup.sh
-bash tests/test_security_hardening.sh
+./scripts/run-qemu.sh output/veilos-live-amd64.iso
 ```
 
 ---
 
-## Security Philosophy & Limitations
+## 📖 Documentation Quick Links
 
-VEILOS adheres to honest security engineering:
-* **No "100% Secure" Claims:** We never claim zero-trace forensics or uncrackable systems.
-* **X11 Limitation:** On standard X11 desktops, cross-window keylogging is a known protocol constraint. Migration to pure Wayland is planned for v2.0.
-* **Cold Boot Remanence:** Residual hardware memory traces on power-off are inherent to DRAM hardware and are not fully eliminated by software-only live distros.
+* 🎤 [30-Second Pitch](docs/30-second-pitch.md)
+* ⏱️ [3-Minute Judge Pitch](docs/3-minute-pitch.md)
+* 🎬 [Final Hackathon Demo Script](docs/final-demo-script.md)
+* ❓ [Judge Questions & Answers (13 FAQs)](docs/judge-questions.md)
+* 🏛️ [System Architecture Overview](docs/architecture-overview.md)
+* 🛡️ [Security Model & Honest Disclosures](docs/security-model.md)
+* 🛟 [Fallback & Recovery Plan](docs/fallback-demo.md)
+* 🔨 [Full ISO Build Specification](docs/build.md)
+
+---
+
+## ⚖️ Transparent Limitations (Honest Security)
+
+1. **X11 Display Protocol:** Under X11, clients sharing `DISPLAY=:0` can theoretically monitor window events. Migration to pure Wayland nested compositors (Wayfire/Cage) is planned for v2.0.
+2. **Profile-Level Network Controls:** Network policy is binary (`ALLOWED` vs. `AIR-GAPPED`). Per-domain deep packet filtering is not enforced at the application level.
+3. **Hardware DRAM Remanence:** Volatile memory is wiped at shutdown, but live physical hardware cold-boot acquisition while powered on is outside our threat model.
+
+---
+
+<div align="center">
+  <b>Built with ❤️ by the VEILOS Team for the Hackathon.</b><br>
+  <i>Private Computing by Default.</i>
+</div>
