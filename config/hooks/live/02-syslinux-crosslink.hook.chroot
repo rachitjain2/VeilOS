@@ -1,0 +1,29 @@
+#!/bin/bash
+set -e
+echo "=== [VEILOS Live Hook] Cross-linking Syslinux/ISOLINUX in chroot ==="
+mkdir -p /usr/lib/ISOLINUX /usr/lib/syslinux/modules/bios /usr/lib/syslinux
+
+# Link isolinux.bin into standard paths if present
+find /usr/lib -name "isolinux.bin" 2>/dev/null | while read -r f; do
+    cp -f "$f" /usr/lib/ISOLINUX/isolinux.bin 2>/dev/null || true
+    cp -f "$f" /usr/lib/syslinux/isolinux.bin 2>/dev/null || true
+done
+
+# Link vesamenu.c32 and other c32 modules
+find /usr/lib -name "vesamenu.c32" 2>/dev/null | while read -r f; do
+    cp -f "$f" /usr/lib/syslinux/modules/bios/vesamenu.c32 2>/dev/null || true
+    cp -f "$f" /usr/lib/syslinux/vesamenu.c32 2>/dev/null || true
+    cp -f "$f" /usr/lib/ISOLINUX/vesamenu.c32 2>/dev/null || true
+done
+
+# Cross-populate all .c32 files between directories
+if [ -d /usr/lib/syslinux/modules/bios ]; then
+    cp -rn /usr/lib/syslinux/modules/bios/* /usr/lib/syslinux/ 2>/dev/null || true
+    cp -rn /usr/lib/syslinux/modules/bios/* /usr/lib/ISOLINUX/ 2>/dev/null || true
+fi
+if [ -d /usr/lib/syslinux ]; then
+    cp -rn /usr/lib/syslinux/*.c32 /usr/lib/syslinux/modules/bios/ 2>/dev/null || true
+    cp -rn /usr/lib/syslinux/*.c32 /usr/lib/ISOLINUX/ 2>/dev/null || true
+fi
+
+echo "=== [VEILOS Live Hook] Bootloader cross-linking complete ==="

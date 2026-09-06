@@ -53,25 +53,52 @@ if [ -d /usr/share/live ]; then
     find /usr/share/live -type f -exec sed -i 's|/dists/\([^/]*\)/Contents-|/dists/\1/main/Contents-|g' {} + 2>/dev/null || true
 fi
 
-# Create host isohybrid wrapper so binary stage never fails if image is already hybridized
-cat << 'EOF' > /usr/local/bin/isohybrid
-#!/bin/sh
-if [ -x /usr/bin/isohybrid ]; then
-    /usr/bin/isohybrid "${@}" 2>/dev/null || true
-fi
-exit 0
-EOF
-chmod +x /usr/local/bin/isohybrid 2>/dev/null || true
+# Ensure executable permissions on all repository scripts
 chmod +x "${ROOT_DIR}/config/includes.chroot/usr/local/bin/"* 2>/dev/null || true
+chmod +x "${ROOT_DIR}/config/hooks/live/"* 2>/dev/null || true
 
-# Ensure syslinux and ISOLINUX paths are cross-linked for live-build
-if [ -d /usr/lib/ISOLINUX ] && [ ! -e /usr/lib/syslinux/isolinux.bin ]; then
-    mkdir -p /usr/lib/syslinux
-    cp -rn /usr/lib/ISOLINUX/* /usr/lib/syslinux/ 2>/dev/null || true
-fi
-if [ -d /usr/lib/syslinux ] && [ ! -e /usr/lib/ISOLINUX/isolinux.bin ]; then
-    mkdir -p /usr/lib/ISOLINUX
-    cp -rn /usr/lib/syslinux/* /usr/lib/ISOLINUX/ 2>/dev/null || true
+# 3. Cross-link host Syslinux & ISOLINUX libraries
+echo "[*] Setting up host Syslinux and ISOLINUX libraries..."
+mkdir -p /usr/lib/ISOLINUX /usr/lib/syslinux/modules/bios /usr/lib/syslinux
+cp -rn /usr/lib/ISOLINUX/* /usr/lib/syslinux/ 2>/dev/null || true
+cp -rn /usr/lib/syslinux/modules/bios/* /usr/lib/ISOLINUX/ 2>/dev/null || true
+cp -rn /usr/lib/syslinux/* /usr/lib/ISOLINUX/ 2>/dev/null || true
+cp -rn /usr/lib/ISOLINUX/* /usr/lib/syslinux/modules/bios/ 2>/dev/null || true
+
+# 4. Dereference host live-build bootloader templates so they contain real binaries instead of symlinks
+echo "[*] Dereferencing live-build bootloader template symlinks..."
+for dir in /usr/share/live/build/bootloaders/isolinux /usr/share/live/build/bootloaders/syslinux_common; do
+    if [ -d "$dir" ]; then
+        find "$dir" -type l | while read -r symlink; do
+            target=$(readlink -f "$symlink" || true)
+            if [ -n "$target" ] && [ -f "$target" ]; then
+                rm -f "$symlink"
+                cp -f "$target" "$symlink"
+            fi
+        done
+    fi
+done
+
+# Copy actual binary files into live-build template directories
+cp -f /usr/lib/ISOLINUX/isolinux.bin /usr/share/live/build/bootloaders/isolinux/ 2>/dev/null || true
+cp -f /usr/lib/syslinux/modules/bios/* /usr/share/live/build/bootloaders/isolinux/ 2>/dev/null || true
+cp -f /usr/lib/syslinux/modules/bios/* /usr/share/live/build/bootloaders/syslinux_common/ 2>/dev/null || true
+cp -f /usr/lib/syslinux/* /usr/share/live/build/bootloaders/isolinux/ 2>/dev/null || true
+cp -f /usr/lib/syslinux/* /usr/share/live/build/bootloaders/syslinux_common/ 2>/dev/null || true
+
+# 5. Patch binary_syslinux to ensure chroot bootloader libraries exist before dereferencing
+if [ -f /usr/lib/live/build/binary_syslinux ]; then
+    echo "[*] Patching binary_syslinux with chroot bootloader library synchronization..."
+    if ! grep -q "sync-syslinux-chroot" /usr/lib/live/build/binary_syslinux; then
+        sed -i '/Chroot chroot cp -aL \/root\/\${_BOOTLOADER}/i \
+# sync-syslinux-chroot\
+mkdir -p chroot/usr/lib/ISOLINUX chroot/usr/lib/syslinux/modules/bios chroot/usr/lib/syslinux\
+cp -rn /usr/lib/ISOLINUX/* chroot/usr/lib/ISOLINUX/ 2>/dev/null || true\
+cp -rn /usr/lib/syslinux/* chroot/usr/lib/syslinux/ 2>/dev/null || true\
+cp -rn /usr/lib/syslinux/modules/bios/* chroot/usr/lib/syslinux/modules/bios/ 2>/dev/null || true\
+cp -rn /usr/lib/ISOLINUX/* chroot/usr/lib/syslinux/modules/bios/ 2>/dev/null || true\
+cp -rn /usr/lib/syslinux/modules/bios/* chroot/usr/lib/ISOLINUX/ 2>/dev/null || true' /usr/lib/live/build/binary_syslinux
+    fi
 fi
 
 echo "[*] Cleaning previous build artifacts..."

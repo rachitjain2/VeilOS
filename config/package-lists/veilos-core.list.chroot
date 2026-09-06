@@ -19,6 +19,8 @@ syslinux-common
 syslinux-utils
 mtools
 xorriso
+grub-pc-bin
+grub-efi-amd64-bin
 
 # Network Connectivity
 network-manager

@@ -1,8 +1,0 @@
-#!/bin/sh
-# VEILOS isohybrid wrapper
-# xorriso already generates hybrid MBR and GPT structures for UEFI and BIOS.
-# If isohybrid is called, run it if possible but do not fail if the boot record is already hybridized.
-if [ -x /usr/bin/isohybrid ]; then
-    /usr/bin/isohybrid "${@}" 2>/dev/null || true
-fi
-exit 0
