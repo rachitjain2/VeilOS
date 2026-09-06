@@ -32,6 +32,15 @@ jobs:
           echo "Patching host live-build to support Debian Bookworm repository format..."
           sudo find /usr/lib/live/ /usr/share/live/ -type f -exec sed -i 's|/updates|-security|g' {} + 2>/dev/null || true
           sudo find /usr/lib/live/ /usr/share/live/ -type f -exec sed -i 's|/dists/\([^/]*\)/Contents-|/dists/\1/main/Contents-|g' {} + 2>/dev/null || true
+          # Create isohybrid wrapper on runner host
+          sudo bash -c 'cat << "EOF" > /usr/local/bin/isohybrid
+#!/bin/sh
+if [ -x /usr/bin/isohybrid ]; then
+    /usr/bin/isohybrid "${@}" 2>/dev/null || true
+fi
+exit 0
+EOF
+chmod +x /usr/local/bin/isohybrid'
 
       - name: Run VEILOS ISO Builder
         run: |

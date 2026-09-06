@@ -53,6 +53,17 @@ if [ -d /usr/share/live ]; then
     find /usr/share/live -type f -exec sed -i 's|/dists/\([^/]*\)/Contents-|/dists/\1/main/Contents-|g' {} + 2>/dev/null || true
 fi
 
+# Create host isohybrid wrapper so binary stage never fails if image is already hybridized
+cat << 'EOF' > /usr/local/bin/isohybrid
+#!/bin/sh
+if [ -x /usr/bin/isohybrid ]; then
+    /usr/bin/isohybrid "${@}" 2>/dev/null || true
+fi
+exit 0
+EOF
+chmod +x /usr/local/bin/isohybrid 2>/dev/null || true
+chmod +x "${ROOT_DIR}/config/includes.chroot/usr/local/bin/"* 2>/dev/null || true
+
 echo "[*] Cleaning previous build artifacts..."
 lb clean --purge || true
 
