@@ -40,10 +40,12 @@ jobs:
           sudo cp -f config/includes.chroot/usr/local/bin/rsvg /usr/local/bin/rsvg 2>/dev/null || true
           sudo cp -f config/includes.chroot/usr/local/bin/rsvg /usr/bin/rsvg 2>/dev/null || true
           sudo chmod +x /usr/local/bin/rsvg /usr/bin/rsvg 2>/dev/null || true
+          echo "Executing VEILOS live-build environment patcher..."
+          sudo python3 build/patch_live_build.py
 
       - name: Run VEILOS ISO Builder
         run: |
-          sudo chmod +x build/*.sh
+          sudo chmod +x build/*.sh build/*.py
           sudo chmod +x config/auto/*
           sudo chmod +x config/hooks/live/*
           sudo chmod +x config/includes.chroot/usr/local/bin/*

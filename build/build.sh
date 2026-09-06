@@ -101,22 +101,9 @@ for f in $(find /usr/share/live/build/bootloaders -name "splash.svg" 2>/dev/null
     rm -f "$f"
 done
 
-# 5. Patch binary_syslinux to ensure chroot bootloader libraries and rsvg wrapper exist before dereferencing
-if [ -f /usr/lib/live/build/binary_syslinux ]; then
-    echo "[*] Patching binary_syslinux with chroot bootloader library synchronization..."
-    if ! grep -q "sync-syslinux-chroot" /usr/lib/live/build/binary_syslinux; then
-        sed -i '/Chroot chroot cp -aL \/root\/\${_BOOTLOADER}/i \
-# sync-syslinux-chroot\
-mkdir -p chroot/usr/lib/ISOLINUX chroot/usr/lib/syslinux/modules/bios chroot/usr/lib/syslinux chroot/usr/bin chroot/usr/local/bin\
-cp -rn /usr/lib/ISOLINUX/* chroot/usr/lib/ISOLINUX/ 2>/dev/null || true\
-cp -rn /usr/lib/syslinux/* chroot/usr/lib/syslinux/ 2>/dev/null || true\
-cp -rn /usr/lib/syslinux/modules/bios/* chroot/usr/lib/syslinux/modules/bios/ 2>/dev/null || true\
-cp -rn /usr/lib/ISOLINUX/* chroot/usr/lib/syslinux/modules/bios/ 2>/dev/null || true\
-cp -rn /usr/lib/syslinux/modules/bios/* chroot/usr/lib/ISOLINUX/ 2>/dev/null || true\
-cp -f /usr/local/bin/rsvg chroot/usr/local/bin/rsvg 2>/dev/null || true\
-cp -f /usr/local/bin/rsvg chroot/usr/bin/rsvg 2>/dev/null || true\
-chmod +x chroot/usr/local/bin/rsvg chroot/usr/bin/rsvg 2>/dev/null || true' /usr/lib/live/build/binary_syslinux
-    fi
+# 5. Run live-build environment patcher (guards Ubuntu gfxboot bug, syncs bootloaders & templates)
+if [ -f "${ROOT_DIR}/build/patch_live_build.py" ]; then
+    python3 "${ROOT_DIR}/build/patch_live_build.py" || true
 fi
 
 echo "[*] Cleaning previous build artifacts..."
@@ -131,6 +118,11 @@ lb config
 # Copy custom hooks
 if [[ -d "${ROOT_DIR}/config/hooks" ]]; then
     mkdir -p "${ROOT_DIR}/config/hooks/live"
+fi
+
+# Re-verify patches right before build
+if [ -f "${ROOT_DIR}/build/patch_live_build.py" ]; then
+    python3 "${ROOT_DIR}/build/patch_live_build.py" || true
 fi
 
 echo "[*] Building VEILOS Live ISO (this may take 10-20 minutes depending on network)..."
