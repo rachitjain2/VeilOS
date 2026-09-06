@@ -13,6 +13,13 @@ udev
 pciutils
 usbutils
 
+# Bootloaders & Hybrid ISO Creation
+isolinux
+syslinux-common
+syslinux-utils
+mtools
+xorriso
+
 # Network Connectivity
 network-manager
 network-manager-gnome
