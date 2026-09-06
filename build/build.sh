@@ -17,7 +17,7 @@ echo "Root directory: ${ROOT_DIR}"
 echo "Output directory: ${OUTPUT_DIR}"
 
 # 1. Dependency checks
-REQUIRED_TOOLS=(lb debootstrap xorriso mksquashfs)
+REQUIRED_TOOLS=(lb debootstrap xorriso mksquashfs isohybrid)
 MISSING=()
 for tool in "${REQUIRED_TOOLS[@]}"; do
     if ! command -v "$tool" >/dev/null 2>&1; then
@@ -28,7 +28,7 @@ done
 if [[ ${#MISSING[@]} -gt 0 ]]; then
     echo "[!] Missing host build dependencies: ${MISSING[*]}"
     echo "    On Debian/Ubuntu, install with:"
-    echo "    sudo apt-get update && sudo apt-get install -y live-build debootstrap xorriso squashfs-tools"
+    echo "    sudo apt-get update && sudo apt-get install -y live-build debootstrap xorriso squashfs-tools syslinux-utils"
     exit 1
 fi
 

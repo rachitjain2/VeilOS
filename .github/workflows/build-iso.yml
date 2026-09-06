@@ -23,6 +23,8 @@ jobs:
             dosfstools \
             isolinux \
             syslinux-common \
+            syslinux-utils \
+            syslinux \
             grub-pc-bin \
             grub-efi-amd64-bin \
             mtools \
