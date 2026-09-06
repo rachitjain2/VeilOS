@@ -42,6 +42,15 @@ fi
 mkdir -p "${OUTPUT_DIR}"
 cd "${ROOT_DIR}"
 
+# Patch host live-build scripts to use Debian Bookworm security suite format (bookworm-security instead of bookworm/updates)
+echo "[*] Ensuring live-build uses modern Debian security repository structure..."
+if [ -d /usr/lib/live ]; then
+    find /usr/lib/live -type f -exec sed -i 's|/updates|-security|g' {} + 2>/dev/null || true
+fi
+if [ -d /usr/share/live ]; then
+    find /usr/share/live -type f -exec sed -i 's|/updates|-security|g' {} + 2>/dev/null || true
+fi
+
 echo "[*] Cleaning previous build artifacts..."
 lb clean --purge || true
 

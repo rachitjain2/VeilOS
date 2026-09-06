@@ -27,6 +27,8 @@ jobs:
             grub-efi-amd64-bin \
             mtools \
             rsync
+          echo "Patching host live-build to support Debian Bookworm security archive format..."
+          sudo find /usr/lib/live/ /usr/share/live/ -type f -exec sed -i 's|/updates|-security|g' {} + 2>/dev/null || true
 
       - name: Run VEILOS ISO Builder
         run: |
@@ -35,6 +37,14 @@ jobs:
           sudo chmod +x config/hooks/live/*
           sudo chmod +x config/includes.chroot/usr/local/bin/*
           sudo ./build/build.sh
+
+      - name: Show Build Log on Failure
+        if: failure()
+        run: |
+          if [ -f output/build.log ]; then
+            echo "========== RECENT BUILD LOG OUTPUT =========="
+            tail -n 150 output/build.log
+          fi
 
       - name: Upload VEILOS ISO Artifact
         uses: actions/upload-artifact@v4
