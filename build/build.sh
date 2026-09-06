@@ -46,6 +46,9 @@ echo "[*] Cleaning previous build artifacts..."
 lb clean --purge || true
 
 echo "[*] Initializing live-build configuration..."
+mkdir -p "${ROOT_DIR}/auto"
+cp -r "${ROOT_DIR}/config/auto/"* "${ROOT_DIR}/auto/" 2>/dev/null || true
+chmod +x "${ROOT_DIR}/auto/"* 2>/dev/null || true
 lb config
 
 # Copy custom hooks
