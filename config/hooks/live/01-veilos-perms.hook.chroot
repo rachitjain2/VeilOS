@@ -1,9 +1,56 @@
 #!/bin/bash
 set -e
-echo "=== [VEILOS Live Hook] Setting permissions ==="
+echo "=== [VEILOS Live Hook] Setting permissions & user environment ==="
 chmod 755 /usr/local/bin/veilos-* 2>/dev/null || true
 chmod 755 /usr/local/bin/veil-* 2>/dev/null || true
 chmod 440 /etc/sudoers.d/veilos 2>/dev/null || true
 chown root:root /etc/sudoers.d/veilos 2>/dev/null || true
 chmod 755 /etc/skel/Desktop/*.desktop 2>/dev/null || true
+
+echo "=== [VEILOS Live Hook] Creating autologin group and veilos user ==="
+groupadd -r autologin 2>/dev/null || true
+groupadd -r sudo 2>/dev/null || true
+
+if ! id -u veilos >/dev/null 2>&1; then
+    useradd -m -s /bin/bash -u 1000 -g users -G sudo,autologin,video,audio,cdrom,plugdev veilos
+else
+    usermod -a -G sudo,autologin,video,audio,cdrom,plugdev veilos
+fi
+
+# Set explicit passwords for both veilos and root
+echo "veilos:veilos" | chpasswd
+echo "root:root" | chpasswd
+
+# Sudoers permissions for veilos user
+echo "veilos ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/01-veilos-nopasswd
+chmod 440 /etc/sudoers.d/01-veilos-nopasswd
+
+# Setup Desktop folder with all VEILOS app launchers
+mkdir -p /home/veilos/Desktop
+cp -rf /etc/skel/Desktop/* /home/veilos/Desktop/ 2>/dev/null || true
+chown -R veilos:users /home/veilos
+chmod -R 755 /home/veilos/Desktop
+
+echo "=== [VEILOS Live Hook] Configuring Graphical Target and LightDM ==="
+systemctl set-default graphical.target
+systemctl enable lightdm 2>/dev/null || true
+
+# Configure LightDM autologin
+mkdir -p /etc/lightdm/lightdm.conf.d
+cat > /etc/lightdm/lightdm.conf.d/01-autologin.conf << 'EOF'
+[Seat:*]
+autologin-guest=false
+autologin-user=veilos
+autologin-user-timeout=0
+autologin-session=xfce
+user-session=xfce
+greeter-session=lightdm-gtk-greeter
+greeter-hide-users=false
+EOF
+
+# Ensure PAM allows LightDM autologin
+if [ -f /etc/pam.d/lightdm-autologin ]; then
+    sed -i 's/^auth\s\+required\s\+pam_succeed_if.so/#&/' /etc/pam.d/lightdm-autologin 2>/dev/null || true
+fi
+
 echo "=== [VEILOS Live Hook] Completed ==="
