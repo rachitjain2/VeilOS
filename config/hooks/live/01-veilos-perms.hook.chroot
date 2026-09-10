@@ -17,17 +17,19 @@ else
     usermod -a -G sudo,autologin,video,audio,cdrom,plugdev veilos
 fi
 
-# Set explicit passwords for both veilos and root
+# Set explicit passwords and ensure accounts are unlocked
 echo "veilos:veilos" | chpasswd
 echo "root:root" | chpasswd
+passwd -u veilos 2>/dev/null || true
+passwd -u root 2>/dev/null || true
 
-# Sudoers permissions for veilos user
+# Sudoers permissions for veilos user (full passwordless sudo)
 echo "veilos ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/01-veilos-nopasswd
 chmod 440 /etc/sudoers.d/01-veilos-nopasswd
 
-# Setup Desktop folder with all VEILOS app launchers
+# Setup home directory with complete skel including .profile, .xinitrc, and Desktop
 mkdir -p /home/veilos/Desktop
-cp -rf /etc/skel/Desktop/* /home/veilos/Desktop/ 2>/dev/null || true
+cp -a /etc/skel/. /home/veilos/ 2>/dev/null || true
 chown -R veilos:users /home/veilos
 chmod -R 755 /home/veilos/Desktop
 
