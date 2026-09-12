@@ -186,6 +186,35 @@ def sync_rsvg_wrapper():
             except Exception:
                 pass
 
+def patch_chroot_hooks():
+    print("[*] Patching lb_chroot_hooks for multi-directory hook discovery...")
+    path = "/usr/lib/live/build/lb_chroot_hooks"
+    if os.path.isfile(path) and not os.path.islink(path):
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                c = f.read()
+            if "config/hooks/*/*.chroot" not in c:
+                c = c.replace(
+                    "if Find_files config/hooks/*.chroot",
+                    "if Find_files config/hooks/*.chroot || Find_files config/hooks/*/*.chroot"
+                )
+                c = c.replace(
+                    "for _HOOK in config/hooks/*.chroot",
+                    "for _HOOK in config/hooks/*.chroot config/hooks/*/*.chroot"
+                )
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(c)
+                print("    [+] Patched lb_chroot_hooks to scan subdirectories!")
+        except Exception as e:
+            print(f"[!] Error patching lb_chroot_hooks: {e}")
+
+    # Also flatten all hooks directly into config/hooks/ so live-build 3.0 finds them unconditionally
+    for hook_file in glob.glob("config/hooks/*/*.chroot"):
+        dest = os.path.join("config/hooks", os.path.basename(hook_file))
+        shutil.copy2(hook_file, dest)
+        os.chmod(dest, 0o755)
+        print(f"    Flattened hook: {hook_file} -> {dest}")
+
 def main():
     print("========================================================")
     print("       VEILOS Live-Build Environment Patcher            ")
@@ -195,6 +224,7 @@ def main():
     sync_rsvg_wrapper()
     dereference_bootloader_templates()
     patch_syslinux_build_scripts()
+    patch_chroot_hooks()
     print("========================================================")
     print("[SUCCESS] Live-build environment patched and verified!")
     print("========================================================")

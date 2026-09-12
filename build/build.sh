@@ -115,9 +115,15 @@ cp -r "${ROOT_DIR}/config/auto/"* "${ROOT_DIR}/auto/" 2>/dev/null || true
 chmod +x "${ROOT_DIR}/auto/"* 2>/dev/null || true
 lb config
 
-# Copy custom hooks
+# Copy and flatten custom chroot hooks across all search paths
 if [[ -d "${ROOT_DIR}/config/hooks" ]]; then
-    mkdir -p "${ROOT_DIR}/config/hooks/live"
+    echo "[*] Synchronizing custom chroot hooks across all search paths..."
+    find "${ROOT_DIR}/config/hooks" -mindepth 2 -type f -name "*.chroot" -exec cp -f {} "${ROOT_DIR}/config/hooks/" \; 2>/dev/null || true
+    mkdir -p "${ROOT_DIR}/config/hooks/live" "${ROOT_DIR}/config/hooks/normal"
+    cp -f "${ROOT_DIR}/config/hooks/"*.chroot "${ROOT_DIR}/config/hooks/live/" 2>/dev/null || true
+    cp -f "${ROOT_DIR}/config/hooks/"*.chroot "${ROOT_DIR}/config/hooks/normal/" 2>/dev/null || true
+    chmod +x "${ROOT_DIR}/config/hooks/"*.chroot 2>/dev/null || true
+    chmod +x "${ROOT_DIR}/config/hooks/live/"* 2>/dev/null || true
 fi
 
 # Re-verify patches right before build
