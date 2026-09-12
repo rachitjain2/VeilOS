@@ -22,7 +22,6 @@ echo "veilos:veilos" | chpasswd 2>/dev/null || true
 echo "root:root" | chpasswd 2>/dev/null || true
 passwd -u veilos 2>/dev/null || true
 passwd -u root 2>/dev/null || true
-passwd -d veilos 2>/dev/null || true
 
 # Allow blank password logins in PAM
 if [ -f /etc/pam.d/common-auth ]; then
