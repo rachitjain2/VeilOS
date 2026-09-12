@@ -8,18 +8,20 @@ chown root:root /etc/sudoers.d/veilos 2>/dev/null || true
 chmod 755 /etc/skel/Desktop/*.desktop 2>/dev/null || true
 
 echo "=== [VEILOS Live Hook] Creating autologin group and veilos user ==="
-groupadd -r autologin 2>/dev/null || true
-groupadd -r sudo 2>/dev/null || true
+for grp in autologin sudo video audio cdrom plugdev netdev; do
+    groupadd -r "$grp" 2>/dev/null || true
+done
 
 if ! id -u veilos >/dev/null 2>&1; then
-    useradd -m -s /bin/bash -u 1000 -g users -G sudo,autologin,video,audio,cdrom,plugdev,netdev,powerdev veilos 2>/dev/null || true
+    useradd -m -s /bin/bash -u 1000 -U -G sudo,autologin,video,audio,cdrom,plugdev veilos || useradd -m -s /bin/bash veilos
+    usermod -a -G sudo,autologin,video,audio,cdrom,plugdev veilos 2>/dev/null || true
 else
-    usermod -a -G sudo,autologin,video,audio,cdrom,plugdev,netdev,powerdev veilos 2>/dev/null || true
+    usermod -a -G sudo,autologin,video,audio,cdrom,plugdev veilos 2>/dev/null || true
 fi
 
 # Set explicit passwords
-echo "veilos:veilos" | chpasswd 2>/dev/null || true
-echo "root:root" | chpasswd 2>/dev/null || true
+echo "veilos:veilos" | chpasswd
+echo "root:root" | chpasswd
 passwd -u veilos 2>/dev/null || true
 passwd -u root 2>/dev/null || true
 
